@@ -3,6 +3,12 @@ import { Logger } from '../utils/cli-utils';
 import { StorageAdapter } from '../types';
 import { MethodOverride, TypeMember } from '../types/type-system';
 
+// Helper types for typed query results (avoid any)
+type QueryResult<T extends Record<string, unknown>> = { rows: T[] };
+type HasQuery<T extends Record<string, unknown>> = {
+  query: (sql: string, params?: unknown[]) => Promise<QueryResult<T>>;
+};
+
 /**
  * Signature compatibility analysis result
  */
@@ -70,7 +76,15 @@ export class TypeAwareDeletionSafety {
 
     try {
       // Get method override information for this function
-      const methodOverrides = await this.getMethodOverridesForFunction(func.id, snapshotId);
+      let methodOverrides = await this.getMethodOverridesForFunction(func.id, snapshotId);
+      
+      // Fallback: if no overrides found via function_id join, infer from relationships/members
+      if (methodOverrides.length === 0) {
+        const inferred = await this.fallbackInferOverridesByRelationships(func, snapshotId);
+        if (inferred.length > 0) {
+          methodOverrides = inferred;
+        }
+      }
       
       // Analyze interface implementations
       const interfaceInfo = await this.analyzeInterfaceImplementations(methodOverrides, snapshotId, func);
@@ -98,6 +112,154 @@ export class TypeAwareDeletionSafety {
     } catch (error) {
       this.logger.error(`Failed to analyze type-aware deletion safety for ${func.name}:`, error);
       return this.createDefaultSafetyInfo('Type analysis failed');
+    }
+  }
+
+  /**
+   * Fallback inference when method_overrides has no rows linked to function_id
+   * 1) Find the type member for this function (class method)
+   * 2) Check implements/extends relationships
+   * 3) Match interface/parent method name to infer a protective override/implementation
+   */
+  private async fallbackInferOverridesByRelationships(
+    func: FunctionInfo,
+    snapshotId: string
+  ): Promise<MethodOverride[]> {
+    try {
+      if (!this.storage || !('query' in this.storage)) return [];
+
+      let memberId: string | null = null;
+      let typeId: string | null = null;
+
+      // Strategy A: Find type member linked by function_id (fast path)
+      const tmByFunc = await (this.storage as HasQuery<{ member_id: unknown; type_id: unknown; type_name?: unknown }> ).query(
+        `SELECT tm.id as member_id, tm.type_id, td.name as type_name
+         FROM type_members tm
+         JOIN type_definitions td ON td.id = tm.type_id
+         WHERE tm.snapshot_id = $1 AND tm.function_id = $2 AND tm.member_kind = 'method'
+         LIMIT 1`,
+        [snapshotId, func.id]
+      );
+      if (tmByFunc.rows.length) {
+        memberId = String(tmByFunc.rows[0].member_id);
+        typeId = String(tmByFunc.rows[0].type_id);
+      }
+
+      // Strategy B: If not found, resolve class by name then method by name (no function_id dependency)
+      if (!memberId) {
+        if (!func.className) return [];
+        const classRes = await (this.storage as HasQuery<{ id: unknown }> ).query(
+          `SELECT id FROM type_definitions WHERE snapshot_id = $1 AND name = $2 AND kind = 'class' LIMIT 1`,
+          [snapshotId, func.className]
+        );
+        if (!classRes.rows.length) return [];
+        typeId = String(classRes.rows[0].id);
+
+        const tmByName = await (this.storage as HasQuery<{ id: unknown }> ).query(
+          `SELECT id FROM type_members WHERE snapshot_id = $1 AND type_id = $2 AND member_kind = 'method' AND name = $3 LIMIT 1`,
+          [snapshotId, typeId, func.name]
+        );
+        if (!tmByName.rows.length) return [];
+        memberId = String(tmByName.rows[0].id);
+      }
+
+      if (!memberId || !typeId) return [];
+
+      // Strategy C: As a final fallback, match by file path and line proximity
+      if (!memberId) {
+        const fileMatch = await (this.storage as HasQuery<{ member_id: unknown; type_id: unknown }> ).query(
+          `SELECT tm.id as member_id, tm.type_id
+           FROM type_members tm
+           JOIN type_definitions td ON td.id = tm.type_id
+           WHERE tm.snapshot_id = $1 
+             AND tm.member_kind = 'method'
+             AND tm.name = $2
+             AND td.file_path = $3
+             AND ABS(tm.start_line - $4) <= 2
+           LIMIT 1`,
+          [snapshotId, func.name, func.filePath, func.startLine]
+        );
+        if (fileMatch.rows.length) {
+          memberId = String(fileMatch.rows[0].member_id);
+          typeId = String(fileMatch.rows[0].type_id);
+        }
+      }
+
+      const overrides: MethodOverride[] = [];
+
+      // Check implements relationships
+      const implRes = await (this.storage as HasQuery<{ target_type_id: unknown; interface_name?: unknown }> ).query(
+         `SELECT tr.target_type_id, td.name as interface_name
+          FROM type_relationships tr
+          LEFT JOIN type_definitions td ON td.id = tr.target_type_id
+          WHERE tr.snapshot_id = $1 AND tr.source_type_id = $2 AND tr.relationship_kind = 'implements'`,
+        [snapshotId, typeId]
+      );
+
+      for (const row of implRes.rows) {
+        const targetTypeId: string | null = row.target_type_id ? String(row.target_type_id) : null;
+        if (!targetTypeId) continue;
+        // Match method name in interface
+        const imRes = await (this.storage as HasQuery<{ id: unknown }> ).query(
+          `SELECT id FROM type_members WHERE snapshot_id = $1 AND type_id = $2 AND member_kind = 'method' AND name = $3 LIMIT 1`,
+          [snapshotId, targetTypeId, func.name]
+        );
+        if (imRes.rows.length) {
+          const targetMemberId: string = String(imRes.rows[0].id);
+          overrides.push({
+            id: `implement_fallback_${memberId}_${targetMemberId}`,
+            snapshotId,
+            methodMemberId: memberId,
+            sourceTypeId: typeId,
+            targetMemberId,
+            targetTypeId,
+            overrideKind: 'implement',
+            isCompatible: true,
+            compatibilityErrors: [],
+            confidenceScore: 0.9,
+            metadata: { inferred: true, reason: 'implements_relationship_match' }
+          });
+        }
+      }
+
+      // Check extends relationships (override or abstract implementation)
+      const extRes = await (this.storage as HasQuery<{ target_type_id: unknown; parent_name?: unknown }> ).query(
+          `SELECT tr.target_type_id, td.name as parent_name
+           FROM type_relationships tr
+           LEFT JOIN type_definitions td ON td.id = tr.target_type_id
+           WHERE tr.snapshot_id = $1 AND tr.source_type_id = $2 AND tr.relationship_kind = 'extends'`,
+        [snapshotId, typeId]
+      );
+      for (const row of extRes.rows) {
+        const parentTypeId: string | null = row.target_type_id ? String(row.target_type_id) : null;
+        if (!parentTypeId) continue;
+        const pmRes = await (this.storage as HasQuery<{ id: unknown; is_abstract: unknown }> ).query(
+          `SELECT id, is_abstract FROM type_members WHERE snapshot_id = $1 AND type_id = $2 AND name = $3 AND member_kind IN ('method','getter','setter') LIMIT 1`,
+          [snapshotId, parentTypeId, func.name]
+        );
+        if (pmRes.rows.length) {
+          const targetMemberId: string = String(pmRes.rows[0].id);
+          const isAbstract: boolean = Boolean(pmRes.rows[0].is_abstract);
+          overrides.push({
+            id: `${isAbstract ? 'abstract_impl' : 'override'}_fallback_${memberId}_${targetMemberId}`,
+            snapshotId,
+            methodMemberId: memberId,
+            sourceTypeId: typeId,
+            targetMemberId,
+            targetTypeId: parentTypeId,
+            overrideKind: isAbstract ? 'abstract_implement' : 'override',
+            isCompatible: true,
+            compatibilityErrors: [],
+            confidenceScore: isAbstract ? 0.95 : 0.9,
+            metadata: { inferred: true, reason: 'extends_relationship_match' }
+          });
+        }
+      }
+
+      return overrides;
+    } catch (error) {
+      this.logger.debug(`Fallback inference failed for ${func.name}: ${error}`);
+      return [];
     }
   }
 

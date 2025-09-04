@@ -12,6 +12,7 @@ export interface SafeDeletionOptions {
   maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 10)
   includeExports: boolean;        // Include exported functions in deletion analysis (default: false)
   excludePatterns: string[];      // File patterns to exclude from deletion
+  verbose?: boolean;              // Verbose logging (inherit from CLI --verbose)
   storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
   snapshotId?: string;           // Snapshot ID for consistent data access
 }
@@ -95,7 +96,8 @@ export class SafeDeletionSystem {
         confidenceThreshold: config.confidenceThreshold,
         includeExports: config.includeExports,
         excludePatterns: config.excludePatterns,
-        verbose: true,
+        // Only enable verbose when explicitly requested via CLI
+        verbose: Boolean(config.verbose),
         dryRun: config.dryRun,
         ...(config.storage && { storage: config.storage }),
         ...(config.snapshotId && { snapshotId: config.snapshotId })

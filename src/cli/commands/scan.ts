@@ -1182,18 +1182,26 @@ export async function performDeferredTypeSystemAnalysis(
   
   try {
     // Check if type system analysis has already been performed for this snapshot
-    // Checking for existing type analysis
-    const existingTypes = await env.storage.query(
-      'SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1', 
-      [snapshotId]
-    );
-    const rawCount = (existingTypes.rows[0] as { count?: unknown })?.count ?? 0;
-    const typeCount = typeof rawCount === 'number' ? rawCount : Number(rawCount) || 0;
+    // and whether method_overrides exist (必要十分チェック)
+    const [existingTypes, existingOverrides] = await Promise.all([
+      env.storage.query(
+        'SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1', 
+        [snapshotId]
+      ),
+      env.storage.query(
+        'SELECT COUNT(*) as count FROM method_overrides WHERE snapshot_id = $1',
+        [snapshotId]
+      )
+    ]);
+    const rawTypeCount = (existingTypes.rows[0] as { count?: unknown })?.count ?? 0;
+    const typeCount = typeof rawTypeCount === 'number' ? rawTypeCount : Number(rawTypeCount) || 0;
+    const rawOverrideCount = (existingOverrides.rows[0] as { count?: unknown })?.count ?? 0;
+    const overrideCount = typeof rawOverrideCount === 'number' ? rawOverrideCount : Number(rawOverrideCount) || 0;
     
-    if (typeCount > 0) {
-      // Type system analysis already completed
+    if (typeCount > 0 && overrideCount > 0) {
+      // Type system analysis already completed（オーバーライドも揃っている）
       if (spinner) {
-        spinner.succeed(`Type system analysis already completed (${typeCount} types found)`);
+        spinner.succeed(`Type system analysis already completed (${typeCount} types, ${overrideCount} overrides)`);
       }
       return { typesAnalyzed: typeCount };
     }
@@ -1329,36 +1337,37 @@ export async function performDeferredTypeSystemAnalysis(
     }
     
     // Store types in database
-    if (typeDefinitions.length > 0) {
-      console.log(`🔧 Saving ${typeDefinitions.length} type definitions and ${typeRelationships.length} relationships...`);
-      try {
+    // 既にtype_definitionsが存在し、method_overridesのみ不足している場合は、重複挿入を避けてoverridesのみ保存
+    const typesAlreadyPresent = typeCount > 0;
+    try {
+      if (!typesAlreadyPresent && typeDefinitions.length > 0) {
+        console.log(`🔧 Saving ${typeDefinitions.length} type definitions and ${typeRelationships.length} relationships...`);
         await env.storage.saveTypeDefinitions(typeDefinitions);
         console.log(`✅ Type definitions saved successfully`);
-        
         await env.storage.saveTypeRelationships(typeRelationships);
         console.log(`✅ Type relationships saved successfully`);
-        
-        if (typeMembers.length > 0) {
-          await env.storage.saveTypeMembers(typeMembers);
-          console.log(`✅ Type members saved successfully (${typeMembers.length} members)`);
-        }
-        
-        if (methodOverrides.length > 0) {
-          await env.storage.saveMethodOverrides(methodOverrides);
-          console.log(`✅ Method overrides saved successfully (${methodOverrides.length} overrides)`);
-        }
-        
-        console.log(`✅ All type data saved successfully`);
-      } catch (error) {
-        env.commandLogger.error(`Failed to save type data: ${error instanceof Error ? error.message : String(error)}`);
-        if (env.commandLogger.isVerbose || process.env['DEBUG'] === 'true') {
-          env.commandLogger.debug('Error details:', {
-            name: error instanceof Error ? error.name : 'Unknown',
-            stack: error instanceof Error ? error.stack?.split('\n').slice(0, 5) : undefined
-          });
-        }
-        throw error;
       }
+      
+      if (!typesAlreadyPresent && typeMembers.length > 0) {
+        await env.storage.saveTypeMembers(typeMembers);
+        console.log(`✅ Type members saved successfully (${typeMembers.length} members)`);
+      }
+      
+      if (methodOverrides.length > 0) {
+        await env.storage.saveMethodOverrides(methodOverrides);
+        console.log(`✅ Method overrides saved successfully (${methodOverrides.length} overrides)`);
+      }
+      
+      console.log(`✅ Type system data save completed`);
+    } catch (error) {
+      env.commandLogger.error(`Failed to save type data: ${error instanceof Error ? error.message : String(error)}`);
+      if (env.commandLogger.isVerbose || process.env['DEBUG'] === 'true') {
+        env.commandLogger.debug('Error details:', {
+          name: error instanceof Error ? error.name : 'Unknown',
+          stack: error instanceof Error ? error.stack?.split('\n').slice(0, 5) : undefined
+        });
+      }
+      throw error;
     }
     
     // Update analysis level

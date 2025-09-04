@@ -81,6 +81,24 @@ async function performSafeDeletion(
 
   const safeDeletionOptions = createSafeDeletionOptions(options);
   
+  // Ensure type system data (type members, method overrides) is available for this snapshot
+  // Required for strict type-based protection (interface implementations / overrides)
+  if (snapshot) {
+    try {
+      const exists = await hasTypeSystemData(env, snapshot.id);
+      if (!exists) {
+        spinner.text = 'Performing type system analysis (for deletion safety)...';
+        const { performDeferredTypeSystemAnalysis } = await import('../commands/scan');
+        await performDeferredTypeSystemAnalysis(snapshot.id, env, false);
+        spinner.text = 'Type system analysis completed. Continuing...';
+      }
+    } catch (e) {
+      // Type systemは削除安全性の強化に使うため、失敗しても致命的ではない
+      // ただしログは残す
+      env.commandLogger.warn(`Type system analysis check failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  
   // Step 1: Always perform analysis first
   const analysisResult = await performAnalysis(functions, callEdges, safeDeletionOptions, spinner, env, snapshot.id);
   
@@ -121,7 +139,9 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
     createBackup: !options.noBackup,
     dryRun,
     includeExports: !!options.includeExports,
-    excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**']
+    excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**'],
+    // pass through verbosity
+    verbose: Boolean(options.verbose)
   };
   
   const mode = dryRun ? 'preview-only' : 'execute';
@@ -199,6 +219,25 @@ async function executeActualDeletion(
   
   if (result.backupPath) {
     console.log(chalk.dim(`\n🔄 To restore deleted functions: funcqc dep delete --restore "${result.backupPath}"`));
+  }
+}
+
+/**
+ * Check whether type system data exists for the snapshot
+ */
+async function hasTypeSystemData(env: CommandEnvironment, snapshotId: string): Promise<boolean> {
+  try {
+    const res = await env.storage.query(
+      'SELECT (SELECT COUNT(1) FROM type_members WHERE snapshot_id = $1) AS members, (SELECT COUNT(1) FROM method_overrides WHERE snapshot_id = $1) AS overrides',
+      [snapshotId]
+    );
+    const row = res.rows[0] as { members?: unknown; overrides?: unknown };
+    const members = typeof row?.members === 'number' ? row.members : Number(row?.members ?? 0);
+    const overrides = typeof row?.overrides === 'number' ? row.overrides : Number(row?.overrides ?? 0);
+    // 型保護のためには method_overrides が必要。0 の場合は未生成とみなす
+    return (members > 0) && (overrides > 0);
+  } catch {
+    return false;
   }
 }
 

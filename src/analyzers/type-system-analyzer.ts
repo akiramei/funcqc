@@ -1,5 +1,6 @@
 import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasDeclaration, EnumDeclaration, ModuleDeclaration } from 'ts-morph';
 import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
+import { simpleHash } from '../utils/hash-utils';
 import { StorageAdapter } from '../types';
 import { Logger } from '../utils/cli-utils';
 import { toUnifiedProjectPath } from '../utils/path-normalizer';
@@ -131,7 +132,7 @@ export class TypeSystemAnalyzer {
     // Phase 4: Extract method overrides
     for (const typeDef of typeDefinitions) {
       if (typeDef.kind === 'class') {
-        const overrides = await this.extractMethodOverrides(typeDef, snapshotId, typeMap, typeMembers);
+        const overrides = await this.extractMethodOverrides(typeDef, snapshotId, typeMap, typeMembers, typeRelationships);
         methodOverrides.push(...overrides);
       }
     }
@@ -938,22 +939,163 @@ export class TypeSystemAnalyzer {
     startLine: number, 
     endLine: number
   ): string | null {
-    const key = `${methodName}-${startLine}-${endLine}`;
-    return functionCache.get(key) || null;
+    // Exact match first
+    const exactKey = `${methodName}-${startLine}-${endLine}`;
+    const exact = functionCache.get(exactKey);
+    if (exact) return exact;
+
+    // Fallback: tolerate small line shifts (±2)
+    let bestMatch: { id: string; delta: number } | null = null;
+    for (const [key, id] of functionCache.entries()) {
+      if (!key.startsWith(`${methodName}-`)) continue;
+      const parts = key.split('-');
+      if (parts.length < 3) continue;
+      const s = Number(parts[1]);
+      const e = Number(parts[2]);
+      if (Number.isNaN(s) || Number.isNaN(e)) continue;
+      const within = Math.abs(s - startLine) <= 2 || Math.abs(e - endLine) <= 2;
+      if (!within) continue;
+      const delta = Math.min(Math.abs(s - startLine), Math.abs(e - endLine));
+      if (!bestMatch || delta < bestMatch.delta) {
+        bestMatch = { id, delta };
+      }
+    }
+    return bestMatch?.id || null;
   }
 
   /**
    * Extract method overrides and implementations
    */
   private async extractMethodOverrides(
-    _typeDef: TypeDefinition, 
-    _snapshotId: string, 
+    typeDef: TypeDefinition,
+    snapshotId: string,
     _typeMap: Map<string, TypeDefinition>,
-    _typeMembers: TypeMember[]
+    typeMembers: TypeMember[],
+    typeRelationships: TypeRelationship[]
   ): Promise<MethodOverride[]> {
-    // This is a placeholder - in a full implementation, we would analyze
-    // method signatures and match them against parent/interface methods
-    // For now, return empty array to avoid breaking changes
-    return [];
+    const overrides: MethodOverride[] = [];
+    if (typeDef.kind !== 'class') return overrides;
+
+    // Index members by type for quick lookup
+    const membersByType = new Map<string, TypeMember[]>();
+    for (const m of typeMembers) {
+      if (!membersByType.has(m.typeId)) membersByType.set(m.typeId, []);
+      membersByType.get(m.typeId)!.push(m);
+    }
+
+    const classMethods = (membersByType.get(typeDef.id) || []).filter(m => m.memberKind === 'method');
+
+    // Helper: parameter count from metadata if available
+    const getParamCount = (member: TypeMember): number | null => {
+      const meta = member.metadata as unknown as { parameters?: Array<{ name: string; type?: string; isOptional?: boolean }> };
+      if (meta && Array.isArray(meta.parameters)) return meta.parameters.length;
+      return null;
+    };
+
+    // 1) Interface implementations: class implements IFoo (including IFoo extends IBase)
+    const implemented = typeRelationships.filter(r => r.sourceTypeId === typeDef.id && r.relationshipKind === 'implements');
+    // Build a quick lookup of interface inheritance (interface extends base interfaces)
+    const extendsBySource = new Map<string, string[]>();
+    for (const rel of typeRelationships) {
+      if (rel.relationshipKind === 'extends' && rel.sourceTypeId && rel.targetTypeId) {
+        const arr = extendsBySource.get(rel.sourceTypeId) || [];
+        arr.push(rel.targetTypeId);
+        extendsBySource.set(rel.sourceTypeId, arr);
+      }
+    }
+
+    const getAllInterfaceAncestors = (ifaceId: string): string[] => {
+      const result: string[] = [];
+      const stack = [ifaceId];
+      const seen = new Set<string>();
+      while (stack.length) {
+        const id = stack.pop()!;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        result.push(id);
+        const parents = extendsBySource.get(id) || [];
+        for (const p of parents) stack.push(p);
+      }
+      return result;
+    };
+
+    for (const rel of implemented) {
+      const interfaceTypeId = rel.targetTypeId;
+      if (!interfaceTypeId) continue;
+      // Include members from the interface and all its ancestor interfaces
+      const ifaceIds = getAllInterfaceAncestors(interfaceTypeId);
+      const interfaceMembers = ifaceIds.flatMap(id => (membersByType.get(id) || [])).filter(m => m.memberKind === 'method');
+
+      for (const clsMethod of classMethods) {
+        const ifaceMethod = interfaceMembers.find(im => {
+          if (im.name !== clsMethod.name) return false;
+          const c = getParamCount(clsMethod);
+          const i = getParamCount(im);
+          return c === null || i === null ? true : c === i;
+        });
+        if (!ifaceMethod) continue;
+
+        const id = `implement_${simpleHash(`${clsMethod.id}_${ifaceMethod.id}`)}`;
+        overrides.push({
+          id,
+          snapshotId,
+          methodMemberId: clsMethod.id,
+          sourceTypeId: typeDef.id,
+          targetMemberId: ifaceMethod.id,
+          targetTypeId: interfaceMembers.length ? (ifaceMethod.typeId || interfaceTypeId) : interfaceTypeId,
+          overrideKind: 'implement',
+          isCompatible: true,
+          compatibilityErrors: [],
+          confidenceScore: 0.95,
+          metadata: {
+            sourceClass: typeDef.name,
+            interface: rel.targetName,
+            method: clsMethod.name,
+            signatureMatch: getParamCount(clsMethod) === getParamCount(ifaceMethod)
+          }
+        });
+      }
+    }
+
+    // 2) Class overrides: class extends Base
+    const extendsRel = typeRelationships.filter(r => r.sourceTypeId === typeDef.id && r.relationshipKind === 'extends');
+    for (const rel of extendsRel) {
+      const parentTypeId = rel.targetTypeId;
+      if (!parentTypeId) continue;
+      const parentMembers = (membersByType.get(parentTypeId) || []).filter(m => m.memberKind === 'method' || m.memberKind === 'getter' || m.memberKind === 'setter');
+
+      for (const clsMethod of classMethods) {
+        const parentMethod = parentMembers.find(pm => {
+          // Normalize getter/setter names to compare
+          const pmName = pm.memberKind === 'getter' ? `get_${pm.name}` : pm.memberKind === 'setter' ? `set_${pm.name}` : pm.name;
+          if (pmName !== clsMethod.name) return false;
+          const c = getParamCount(clsMethod);
+          const p = getParamCount(pm);
+          return c === null || p === null ? true : c === p;
+        });
+        if (!parentMethod) continue;
+
+        const id = `${parentMethod.isAbstract ? 'abstract_impl' : 'override'}_${simpleHash(`${clsMethod.id}_${parentMethod.id}`)}`;
+        overrides.push({
+          id,
+          snapshotId,
+          methodMemberId: clsMethod.id,
+          sourceTypeId: typeDef.id,
+          targetMemberId: parentMethod.id,
+          targetTypeId: parentTypeId,
+          overrideKind: parentMethod.isAbstract ? 'abstract_implement' : 'override',
+          isCompatible: true,
+          compatibilityErrors: [],
+          confidenceScore: parentMethod.isAbstract ? 0.95 : 0.9,
+          metadata: {
+            sourceClass: typeDef.name,
+            parent: rel.targetName,
+            method: clsMethod.name
+          }
+        });
+      }
+    }
+
+    return overrides;
   }
 }

@@ -56,7 +56,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       skippedTestFunction: 0
     };
 
-    // Set up type-aware safety analysis
+    // Set up type-aware safety analysis（型情報に基づく厳密な保護を有効化）
     if (foundationData.storage) {
       this.typeAwareSafety.setStorage(foundationData.storage);
     }
@@ -72,19 +72,41 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
         continue;
       }
 
-      // DISABLED: Type-aware deletion safety uses heuristics and speculation
-      // Only use actual call graph data for deletion decisions
-      // 
-      // Reasoning: Functions should only be protected if they are:
-      // 1. Actually called (detected by call graph analysis)
-      // 2. Entry points (detected by entry point analysis)  
-      // 3. Genuinely unsafe to delete (anonymous callbacks, etc.)
-      //
-      // Type information should NOT be used for speculative protection
-      // as it leads to false positives and prevents legitimate dead code removal
-      
+      // 型情報に基づく削除安全性チェックを実施（ヒューリスティックを避ける）
       let typeInfo: TypeAwareDeletionInfo | undefined;
-      // Skip type-aware protection entirely - rely on call graph analysis only
+      if (foundationData.snapshotId) {
+        try {
+          typeInfo = await this.typeAwareSafety.analyzeDeletionSafety(func, foundationData.snapshotId);
+          // インターフェイス実装／メソッドオーバーライドはコントラクトの一部として保護し、削除候補から除外
+          if (typeInfo.isInterfaceImplementation || typeInfo.isMethodOverride) {
+            const reasonParts: string[] = [];
+            if (typeInfo.isInterfaceImplementation && typeInfo.implementedInterfaces.length > 0) {
+              reasonParts.push(`Implements ${typeInfo.implementedInterfaces.length} interface(s)`);
+            }
+            if (typeInfo.isMethodOverride && typeInfo.overriddenMethods.length > 0) {
+              reasonParts.push(`Overrides ${typeInfo.overriddenMethods.length} parent method(s)`);
+            }
+            const reasonText = reasonParts.length > 0 ? reasonParts.join(', ') : 'Protected by type information';
+            if (config.verbose) {
+              this.logger.warn(`⚠️  Function ${func.name} protected by type information: ${reasonText}`);
+            }
+            // 型契約があるため削除対象にしない
+            continue;
+          }
+          // 型保護なしの場合、デバッグ情報を出力（verbose時）
+          if (config.verbose) {
+            this.logger.debug(
+              `Type protection not applied for ${func.name} (${func.filePath}): ` +
+              `isImpl=${Boolean(typeInfo?.isInterfaceImplementation)}, ` +
+              `isOverride=${Boolean(typeInfo?.isMethodOverride)}, ` +
+              `className=${func.className ?? 'n/a'}`
+            );
+          }
+        } catch (e) {
+          // 型解析に失敗した場合は保護を適用せず、以降の判定に委ねる（失敗は候補生成の阻害にしない）
+          this.logger.debug(`Type-aware safety check failed for ${func.name}: ${e}`);
+        }
+      }
 
       const callers = foundationData.reverseCallGraph.get(functionId) || new Set();
       const highConfidenceCallersSet = foundationData.highConfidenceEdgeMap.get(functionId) || new Set();
@@ -284,6 +306,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     
     return null; // Function can be processed
   }
+
 
   /**
    * Update skip statistics based on skip reason
