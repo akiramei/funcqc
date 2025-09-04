@@ -4,6 +4,10 @@ import {
   CallExpression,
   Node,
   TypeChecker,
+  VariableDeclaration,
+  ParameterDeclaration,
+  ClassDeclaration,
+  NewExpression,
 } from 'ts-morph';
 import { v4 as uuidv4 } from 'uuid';
 import { CallEdge } from '../types';
@@ -187,7 +191,8 @@ export class CallGraphAnalyzer {
     importIndex: Map<string, ImportRecord>,
     allowedFunctionIdSet: Set<string>,
     getFunctionIdByDeclaration: (decl: Node) => string | undefined,
-    candidateNames?: Set<string>
+    candidateNames: Set<string> | undefined,
+    functionNode: Node
   ): Promise<CallEdge[]> {
     const callEdges: CallEdge[] = [];
     let idMismatchCount = 0;
@@ -197,6 +202,46 @@ export class CallGraphAnalyzer {
     const filteredCallExpressions = candidateNames ? 
       this.preFilterCallExpressions(callExpressions, candidateNames) : 
       callExpressions;
+
+    // Build a lightweight local RTA map: identifier -> ClassDeclaration node
+    const localClassMap = new Map<string, ClassDeclaration>();
+    try {
+      functionNode.forEachDescendant((n, trav) => {
+        // Skip nested function scopes
+        if (this.isFunctionDeclaration(n) && n !== functionNode) {
+          trav.skip();
+          return;
+        }
+        // Variable declarations: const x = new ClassName()
+        if (Node.isVariableDeclaration(n)) {
+          const vd: VariableDeclaration = n;
+          const name = vd.getName();
+          const init = vd.getInitializer();
+          if (name && init && Node.isNewExpression(init)) {
+            const newExpr: NewExpression = init;
+            const expr = newExpr.getExpression();
+            const sym = expr ? typeChecker.getSymbolAtLocation(expr) : undefined;
+            const decl = sym?.getDeclarations()?.[0];
+            if (decl && Node.isClassDeclaration(decl)) {
+              localClassMap.set(name, decl);
+            }
+          }
+        }
+        // Function parameters typed as ClassName
+        if (Node.isParameterDeclaration(n)) {
+          const pn: ParameterDeclaration = n;
+          const name = pn.getName();
+          const t = pn.getType();
+          const sym = t?.getSymbol();
+          const decl = sym?.getDeclarations()?.[0];
+          if (name && decl && Node.isClassDeclaration(decl)) {
+            localClassMap.set(name, decl);
+          }
+        }
+      });
+    } catch {
+      // Non-fatal: local RTA map is best-effort
+    }
 
     for (const callExpr of filteredCallExpressions) {
       try {
@@ -251,6 +296,27 @@ export class CallGraphAnalyzer {
                     );
                     callEdges.push(callEdge);
                     resolvedCount++;
+                  }
+                }
+              } else {
+                // Local RTA fallback: identifier mapped to a known ClassDeclaration
+                const classDecl = localClassMap.get(alias);
+                if (classDecl) {
+                  // Find method in class
+                  const methodDecl = classDecl.getInstanceMethods().find(m => m.getName() === name)
+                    || classDecl.getMethods().find(m => m.getName() === name);
+                  if (methodDecl) {
+                    const fid = getFunctionIdByDeclaration(methodDecl);
+                    if (fid && allowedFunctionIdSet.has(fid)) {
+                      const fallbackResolution = { kind: 'internal' as const, functionId: fid, confidence: 0.95, via: 'fallback' as const };
+                      const callEdge = this.createCallEdgeFromResolution(
+                        callExpr,
+                        sourceFunctionId,
+                        fallbackResolution
+                      );
+                      callEdges.push(callEdge);
+                      resolvedCount++;
+                    }
                   }
                 }
               }
@@ -391,7 +457,8 @@ export class CallGraphAnalyzer {
             importIndex,
             actualAllowedFunctionIdSet,
             declarationLookup,
-            candidateNames
+            candidateNames,
+            functionNode
           );
           
           
