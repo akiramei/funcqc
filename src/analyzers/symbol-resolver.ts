@@ -275,7 +275,8 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       }
     }
     
-    // 関数/メソッド/コンストラクタ/関数式・アロー関数に対応
+    // 関数/メソッド/コンストラクタ/関数式・アロー関数、
+    // さらに変数宣言の初期化子が関数式/アロー関数のケースにも対応
     if (
       Node.isFunctionDeclaration(d) ||
       Node.isMethodDeclaration(d) ||
@@ -284,8 +285,16 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       Node.isArrowFunction(d)
     ) {
       const id = ctx.getFunctionIdByDeclaration(d);
-      
       if (id) return { functionId: id, decl: d };
+    }
+
+    // 例: export const foo = () => {} / function(){...}
+    if (Node.isVariableDeclaration(d)) {
+      const init = d.getInitializer();
+      if (init && (Node.isFunctionExpression(init) || Node.isArrowFunction(init))) {
+        const id = ctx.getFunctionIdByDeclaration(init);
+        if (id) return { functionId: id, decl: init };
+      }
     }
   }
   // If we still haven't found anything, try getting the aliased symbol as a fallback

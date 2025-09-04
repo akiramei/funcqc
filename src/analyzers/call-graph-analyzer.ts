@@ -31,6 +31,7 @@ export class CallGraphAnalyzer {
   private logger: Logger | undefined;
   private profiler: PerformanceProfiler;
   private exportDeclarationsByFile: Map<string, ReadonlyMap<string, Node[]>> = new Map();
+  private resolvingVisited: Set<string> = new Set();
   private importResolutionCache: Map<string, Node | undefined> = new Map();
   private importIndexCache: WeakMap<SourceFile, Map<string, ImportRecord>> = new WeakMap();
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
@@ -227,6 +228,34 @@ export class CallGraphAnalyzer {
             resolution
           );
           callEdges.push(callEdge);
+        } else if (resolution.kind === "unknown") {
+          // Fallback: property access via import alias (e.g., ns.foo()) that symbol-resolver couldn't map
+          const expr = callExpr.getExpression();
+          if (Node.isPropertyAccessExpression(expr)) {
+            const left = expr.getExpression();
+            const name = expr.getNameNode().getText();
+            if (Node.isIdentifier(left)) {
+              const alias = left.getText();
+              const rec = importIndex.get(alias);
+              if (rec) {
+                // Try resolving through import cache explicitly
+                const decl = this.resolveImportedSymbolWithCache(rec.module, name, filePath);
+                if (decl) {
+                  const fid = getFunctionIdByDeclaration(decl);
+                  if (fid && allowedFunctionIdSet.has(fid)) {
+                    const fallbackResolution = { kind: 'internal' as const, functionId: fid, confidence: 0.95, via: 'fallback' as const };
+                    const callEdge = this.createCallEdgeFromResolution(
+                      callExpr,
+                      sourceFunctionId,
+                      fallbackResolution
+                    );
+                    callEdges.push(callEdge);
+                    resolvedCount++;
+                  }
+                }
+              }
+            }
+          }
         }
         // External calls are ignored as they don't contribute to circular dependencies
         // Unknown calls are also ignored as they're likely external or unresolvable
@@ -621,21 +650,77 @@ export class CallGraphAnalyzer {
           this.profiler.recordDetail('import_resolution', 'export_cache_builds', 1);
         }
         
-        // Find the exported function
+        // Find the exported function or re-export chain target
         const decls = fileExportsCache.get(exportedName);
         this.logger?.debug(`Exported declarations for ${exportedName}: ${decls?.length || 0} found`);
         
-        if (decls && decls.length > 0) {
-          // Return the first declaration (function/method)
-          for (const decl of decls) {
-            this.logger?.debug(`Checking declaration: ${decl.getKindName()}`);
-            if (this.isFunctionDeclaration(decl)) {
-              this.logger?.debug(`Found function declaration for ${exportedName}`);
-              this.profiler.recordDetail('import_resolution', 'successful_resolutions', 1);
-              // Cache the successful result
-              this.importResolutionCache.set(cacheKey, decl);
-              return decl;
+        // Helper: attempt to extract function-like node from a declaration
+        const extractFunctionLike = (n: Node): Node | undefined => {
+          if (this.isFunctionDeclaration(n)) return n;
+          // Variable declaration with function initializer
+          if (Node.isVariableDeclaration(n)) {
+            const init = n.getInitializer();
+            if (init && (Node.isFunctionExpression(init) || Node.isArrowFunction(init))) {
+              return init;
             }
+          }
+          return undefined;
+        };
+
+        if (decls && decls.length > 0) {
+          for (const decl of decls) {
+            const fn = extractFunctionLike(decl);
+            if (fn) {
+              this.profiler.recordDetail('import_resolution', 'successful_resolutions', 1);
+              this.importResolutionCache.set(cacheKey, fn);
+              return fn;
+            }
+          }
+        } else {
+          // Re-export handling: export { foo as bar } from './mod'; export * from './mod';
+          try {
+            const exportDecls = targetSourceFile.getExportDeclarations();
+            for (const ed of exportDecls) {
+              const mod = ed.getModuleSpecifierValue();
+              if (!mod) continue; // skip local re-exports without module specifier
+
+              // 1) Named re-exports
+              const named = ed.getNamedExports();
+              for (const spec of named) {
+                const local = spec.getNameNode().getText();
+                const aliasNode = spec.getAliasNode();
+                const exportedAs = aliasNode ? aliasNode.getText() : local;
+                if (exportedAs === exportedName) {
+                  // Prevent cycles
+                  const vkey = `${currentFilePath}::${moduleSpecifier}::${exportedName}`;
+                  if (!this.resolvingVisited.has(vkey)) {
+                    this.resolvingVisited.add(vkey);
+                    const res = this.resolveImportedSymbolWithCache(mod, local, currentFilePath);
+                    if (res) {
+                      this.importResolutionCache.set(cacheKey, res);
+                      return res;
+                    }
+                  }
+                }
+              }
+
+              // 2) Wildcard re-exports: export * from './mod'
+              if (ed.isNamespaceExport?.()) {
+                // namespace export (export * as ns from ...) — not applicable here
+              } else if (ed.isTypeOnly?.() === false && named.length === 0) {
+                const vkey2 = `${currentFilePath}::${moduleSpecifier}::*::${exportedName}`;
+                if (!this.resolvingVisited.has(vkey2)) {
+                  this.resolvingVisited.add(vkey2);
+                  const res = this.resolveImportedSymbolWithCache(mod, exportedName, currentFilePath);
+                  if (res) {
+                    this.importResolutionCache.set(cacheKey, res);
+                    return res;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            this.logger?.debug(`Re-export resolution failed: ${String(e)}`);
           }
         }
       } else {
