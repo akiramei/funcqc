@@ -8,6 +8,9 @@ import {
   ParameterDeclaration,
   ClassDeclaration,
   NewExpression,
+  BinaryExpression,
+  CallExpression as TsCallExpression,
+  Identifier,
 } from 'ts-morph';
 import { v4 as uuidv4 } from 'uuid';
 import { CallEdge } from '../types';
@@ -243,6 +246,42 @@ export class CallGraphAnalyzer {
               const aliasSource = localClassMap.get(init.getText());
               if (aliasSource) {
                 localClassMap.set(name, aliasSource);
+              }
+            }
+          }
+        }
+        // Simple assignment propagation: x = new C(), x = factory(), x = y
+        if (Node.isBinaryExpression(n)) {
+          const be: BinaryExpression = n;
+          const op = be.getOperatorToken().getText();
+          if (op === '=') {
+            const left = be.getLeft();
+            const right = be.getRight();
+            if (Node.isIdentifier(left)) {
+              const leftName: string = (left as Identifier).getText();
+              if (Node.isNewExpression(right)) {
+                const expr = right.getExpression();
+                const sym = expr ? typeChecker.getSymbolAtLocation(expr) : undefined;
+                const decl = sym?.getDeclarations()?.[0];
+                if (decl && Node.isClassDeclaration(decl)) {
+                  localClassMap.set(leftName, decl);
+                }
+              } else if (Node.isCallExpression(right)) {
+                try {
+                  const t = typeChecker.getTypeAtLocation(right as TsCallExpression);
+                  const sym = t?.getSymbol();
+                  const decl = sym?.getDeclarations()?.[0];
+                  if (decl && Node.isClassDeclaration(decl)) {
+                    localClassMap.set(leftName, decl);
+                  }
+                } catch {
+                  // ignore
+                }
+              } else if (Node.isIdentifier(right)) {
+                const src = localClassMap.get(right.getText());
+                if (src) {
+                  localClassMap.set(leftName, src);
+                }
               }
             }
           }
