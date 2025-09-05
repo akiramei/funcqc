@@ -56,10 +56,14 @@ export class DBBridgeAnalysisStage {
         const candidateFunctionIds = new Set<string>();
 
         if (typeDef.kind === 'class') {
-          const members = await this.storage.getTypeMembers(typeDef.id);
-          for (const m of members) {
-            if ((m.memberKind === 'method' || m.memberKind === 'getter' || m.memberKind === 'setter') && m.name === call.methodName && m.functionId) {
-              candidateFunctionIds.add(m.functionId);
+          // Search methods in the class and its parent chain (extends)
+          const searchTypeIds = await this.collectClassAndParents(typeDef.id, typeDef.snapshotId);
+          for (const tid of searchTypeIds) {
+            const members = await this.storage.getTypeMembers(tid);
+            for (const m of members) {
+              if ((m.memberKind === 'method' || m.memberKind === 'getter' || m.memberKind === 'setter') && m.name === call.methodName && m.functionId) {
+                candidateFunctionIds.add(m.functionId);
+              }
             }
           }
         } else if (typeDef.kind === 'interface') {
@@ -108,7 +112,8 @@ export class DBBridgeAnalysisStage {
             resolutionLevel: 'rta_resolved' as ResolutionLevel,
             resolutionSource: 'db_bridge',
             runtimeConfirmed: false,
-            candidates: [fid],
+            // Include all present candidates for penalty/visibility
+            candidates: presentCandidateIds,
             analysisMetadata: {
               timestamp: Date.now(),
               analysisVersion: '1.0',
@@ -126,5 +131,42 @@ export class DBBridgeAnalysisStage {
     }
 
     return { resolvedEdges, unresolvedRemaining };
+  }
+
+  /**
+   * Collect class id and its parent ids (extends chain) limited depth to avoid cycles
+   */
+  private async collectClassAndParents(typeId: string, snapshotId: string, maxDepth = 5): Promise<string[]> {
+    const visited = new Set<string>();
+    const result: string[] = [];
+    let frontier: string[] = [typeId];
+    let depth = 0;
+
+    while (frontier.length > 0 && depth <= maxDepth) {
+      const next: string[] = [];
+      for (const tid of frontier) {
+        if (visited.has(tid)) continue;
+        visited.add(tid);
+        result.push(tid);
+        try {
+          const q = await this.storage.query(
+            `SELECT target_type_id FROM type_relationships WHERE snapshot_id = $1 AND source_type_id = $2 AND relationship_kind = 'extends'`,
+            [snapshotId, tid]
+          );
+          for (const row of q.rows) {
+            const parentId = (row as { target_type_id?: unknown }).target_type_id;
+            if (typeof parentId === 'string' && parentId && !visited.has(parentId)) {
+              next.push(parentId);
+            }
+          }
+        } catch (e) {
+          this.logger.debug(`collectClassAndParents failed for ${tid}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      frontier = next;
+      depth++;
+    }
+
+    return result;
   }
 }

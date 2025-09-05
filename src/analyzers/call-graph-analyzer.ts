@@ -217,13 +217,27 @@ export class CallGraphAnalyzer {
           const vd: VariableDeclaration = n;
           const name = vd.getName();
           const init = vd.getInitializer();
-          if (name && init && Node.isNewExpression(init)) {
-            const newExpr: NewExpression = init;
-            const expr = newExpr.getExpression();
-            const sym = expr ? typeChecker.getSymbolAtLocation(expr) : undefined;
-            const decl = sym?.getDeclarations()?.[0];
-            if (decl && Node.isClassDeclaration(decl)) {
-              localClassMap.set(name, decl);
+          if (name && init) {
+            if (Node.isNewExpression(init)) {
+              const newExpr: NewExpression = init;
+              const expr = newExpr.getExpression();
+              const sym = expr ? typeChecker.getSymbolAtLocation(expr) : undefined;
+              const decl = sym?.getDeclarations()?.[0];
+              if (decl && Node.isClassDeclaration(decl)) {
+                localClassMap.set(name, decl);
+              }
+            } else if (Node.isCallExpression(init)) {
+              // Factory return type → class symbol
+              try {
+                const t = typeChecker.getTypeAtLocation(init);
+                const sym = t?.getSymbol();
+                const decl = sym?.getDeclarations()?.[0];
+                if (decl && Node.isClassDeclaration(decl)) {
+                  localClassMap.set(name, decl);
+                }
+              } catch {
+                // ignore
+              }
             }
           }
         }
