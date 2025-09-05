@@ -26,6 +26,8 @@ export class DBBridgeAnalysisStage {
   private typeMembersCache = new Map<string, TypeMember[]>(); // key: typeId
   private implementingClassesCache = new Map<string, TypeDefinition[]>(); // key: interfaceId
   private extendsChainCache = new Map<string, string[]>(); // key: `${snapshotId}:${typeId}`
+  private interfaceExtendersIdsCache = new Map<string, string[]>(); // key: `${snapshotId}:${interfaceId}`
+  private transitiveImplementorsCache = new Map<string, TypeDefinition[]>(); // key: `${snapshotId}:${interfaceId}`
 
   constructor(storage: StorageAdapter, logger?: Logger) {
     this.storage = storage;
@@ -73,7 +75,8 @@ export class DBBridgeAnalysisStage {
             }
           }
         } else if (typeDef.kind === 'interface') {
-          const implementingClasses = await this.getImplementingClassesCached(typeDef.id);
+          // Collect classes implementing this interface directly or via child interfaces (transitive)
+          const implementingClasses = await this.collectTransitiveImplementingClassesCached(typeDef.id, typeDef.snapshotId);
           for (const cls of implementingClasses) {
             const members = await this.getTypeMembersCached(cls.id);
             for (const m of members) {
@@ -207,5 +210,68 @@ export class DBBridgeAnalysisStage {
     const ids = await this.collectClassAndParents(typeId, snapshotId, maxDepth);
     this.extendsChainCache.set(key, ids);
     return ids;
+  }
+
+  private async getExtendingInterfaceIdsCached(interfaceId: string, snapshotId: string): Promise<string[]> {
+    const key = `${snapshotId}:${interfaceId}`;
+    if (this.interfaceExtendersIdsCache.has(key)) return this.interfaceExtendersIdsCache.get(key)!;
+    try {
+      const q = await this.storage.query(
+        `SELECT tr.source_type_id AS child_id
+         FROM type_relationships tr
+         JOIN type_definitions td ON td.id = tr.source_type_id
+         WHERE tr.snapshot_id = $1 AND tr.target_type_id = $2 AND tr.relationship_kind = 'extends' AND td.kind = 'interface'`,
+        [snapshotId, interfaceId]
+      );
+      const ids: string[] = [];
+      for (const row of q.rows) {
+        const child = (row as { child_id?: unknown }).child_id;
+        if (typeof child === 'string' && child) ids.push(child);
+      }
+      this.interfaceExtendersIdsCache.set(key, ids);
+      return ids;
+    } catch (e) {
+      this.logger.debug(`getExtendingInterfaceIdsCached failed: ${e instanceof Error ? e.message : String(e)}`);
+      this.interfaceExtendersIdsCache.set(key, []);
+      return [];
+    }
+  }
+
+  private async collectTransitiveImplementingClassesCached(interfaceId: string, snapshotId: string): Promise<TypeDefinition[]> {
+    const key = `${snapshotId}:${interfaceId}`;
+    if (this.transitiveImplementorsCache.has(key)) return this.transitiveImplementorsCache.get(key)!;
+
+    const visited = new Set<string>();
+    const queue: string[] = [interfaceId];
+    const classes: TypeDefinition[] = [];
+    const seenClassIds = new Set<string>();
+
+    while (queue.length > 0) {
+      const iid = queue.shift()!;
+      if (visited.has(iid)) continue;
+      visited.add(iid);
+
+      // Direct implementing classes
+      try {
+        const impls = await this.getImplementingClassesCached(iid);
+        for (const cls of impls) {
+          if (!seenClassIds.has(cls.id)) {
+            classes.push(cls);
+            seenClassIds.add(cls.id);
+          }
+        }
+      } catch (e) {
+        this.logger.debug(`getImplementingClassesCached failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      // Enqueue child interfaces (those that extend current interface)
+      const childIds = await this.getExtendingInterfaceIdsCached(iid, snapshotId);
+      for (const cid of childIds) {
+        if (!visited.has(cid)) queue.push(cid);
+      }
+    }
+
+    this.transitiveImplementorsCache.set(key, classes);
+    return classes;
   }
 }
