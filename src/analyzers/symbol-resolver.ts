@@ -383,9 +383,59 @@ export function resolveCallee(call: CallExpression | NewExpression, ctx: Resolve
     if (functionId) {
       return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: "symbol" };
     }
+    // Fallback: 左辺の型からプロパティシンボルを引く
+    try {
+      const leftType = ctx.typeChecker.getTypeAtLocation(left);
+      const prop = leftType?.getProperty?.(name as string);
+      if (prop) {
+        const byType = tryResolveInternalBySymbol(prop, ctx);
+        if (byType.functionId) {
+          return { kind: "internal", functionId: byType.functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: "symbol" };
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     // 解決不能: 外部の可能性もあるが証拠不足 → unknown
     return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_PROPERTY };
+  }
+
+  // element access 形式: obj['method'](...)
+  if (Node.isElementAccessExpression(expr)) {
+    const left = expr.getExpression();
+    const arg = expr.getArgumentExpression();
+    const name = arg && Node.isStringLiteral(arg) ? arg.getLiteralText() : undefined;
+    if (left && name) {
+      // import alias 経由か、左辺型のプロパティから解決
+      const leftNode = left as Node;
+      const modViaImport = resolveLeftModuleFromImports(leftNode, ctx);
+      if (modViaImport) {
+        const external = isExternalModule(modViaImport.module, ctx.internalModulePrefixes ?? []);
+        if (!external) {
+          // Try symbol on synthetic property name
+          const sym = arg ? ctx.typeChecker.getSymbolAtLocation(arg) : undefined;
+          const { functionId } = tryResolveInternalBySymbol(sym, ctx);
+          if (functionId) {
+            return { kind: 'internal', functionId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: 'symbol' };
+          }
+        }
+      }
+      // Fallback: 左辺の型からプロパティを解決
+      try {
+        const leftType = ctx.typeChecker.getTypeAtLocation(leftNode);
+        const prop = leftType?.getProperty?.(name);
+        if (prop) {
+          const r = tryResolveInternalBySymbol(prop, ctx);
+          if (r.functionId) {
+            return { kind: 'internal', functionId: r.functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: 'symbol' };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return { kind: 'unknown', raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_PROPERTY };
   }
 
   // 素の識別子 foo(...)

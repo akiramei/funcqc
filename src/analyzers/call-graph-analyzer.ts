@@ -238,6 +238,12 @@ export class CallGraphAnalyzer {
               } catch {
                 // ignore
               }
+            } else if (Node.isIdentifier(init)) {
+              // Simple alias: const y = x; if x already mapped to a class, map y as well
+              const aliasSource = localClassMap.get(init.getText());
+              if (aliasSource) {
+                localClassMap.set(name, aliasSource);
+              }
             }
           }
         }
