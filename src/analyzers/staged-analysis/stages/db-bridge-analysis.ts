@@ -1,5 +1,6 @@
 import { Logger } from '../../../utils/cli-utils';
 import { StorageAdapter } from '../../../types';
+import type { TypeDefinition, TypeMember } from '../../../types/type-system';
 import { AnalysisState } from '../types';
 import { UnresolvedMethodCall } from '../../cha-analyzer';
 import { FunctionMetadata, ResolutionLevel } from '../../ideal-call-graph-analyzer';
@@ -20,6 +21,11 @@ import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 export class DBBridgeAnalysisStage {
   private storage: StorageAdapter;
   private logger: Logger;
+  // Caches to reduce repeated DB lookups within a single analysis run
+  private typeByNameCache = new Map<string, TypeDefinition | null>(); // key: `${snapshotId}:${name}`
+  private typeMembersCache = new Map<string, TypeMember[]>(); // key: typeId
+  private implementingClassesCache = new Map<string, TypeDefinition[]>(); // key: interfaceId
+  private extendsChainCache = new Map<string, string[]>(); // key: `${snapshotId}:${typeId}`
 
   constructor(storage: StorageAdapter, logger?: Logger) {
     this.storage = storage;
@@ -47,7 +53,7 @@ export class DBBridgeAnalysisStage {
       }
 
       try {
-        const typeDef = await this.storage.findTypeByName(call.receiverType, snapshotId);
+        const typeDef = await this.getTypeByNameCached(call.receiverType, snapshotId);
         if (!typeDef) {
           unresolvedRemaining.push(call);
           continue;
@@ -57,9 +63,9 @@ export class DBBridgeAnalysisStage {
 
         if (typeDef.kind === 'class') {
           // Search methods in the class and its parent chain (extends)
-          const searchTypeIds = await this.collectClassAndParents(typeDef.id, typeDef.snapshotId);
+          const searchTypeIds = await this.collectClassAndParentsCached(typeDef.id, typeDef.snapshotId);
           for (const tid of searchTypeIds) {
-            const members = await this.storage.getTypeMembers(tid);
+            const members = await this.getTypeMembersCached(tid);
             for (const m of members) {
               if ((m.memberKind === 'method' || m.memberKind === 'getter' || m.memberKind === 'setter') && m.name === call.methodName && m.functionId) {
                 candidateFunctionIds.add(m.functionId);
@@ -67,9 +73,9 @@ export class DBBridgeAnalysisStage {
             }
           }
         } else if (typeDef.kind === 'interface') {
-          const implementingClasses = await this.storage.getImplementingClasses(typeDef.id);
+          const implementingClasses = await this.getImplementingClassesCached(typeDef.id);
           for (const cls of implementingClasses) {
-            const members = await this.storage.getTypeMembers(cls.id);
+            const members = await this.getTypeMembersCached(cls.id);
             for (const m of members) {
               if ((m.memberKind === 'method' || m.memberKind === 'getter' || m.memberKind === 'setter') && m.name === call.methodName && m.functionId) {
                 candidateFunctionIds.add(m.functionId);
@@ -168,5 +174,38 @@ export class DBBridgeAnalysisStage {
     }
 
     return result;
+  }
+
+  /**
+   * Cached helpers
+   */
+  private async getTypeByNameCached(name: string, snapshotId: string): Promise<TypeDefinition | null> {
+    const key = `${snapshotId}:${name}`;
+    if (this.typeByNameCache.has(key)) return this.typeByNameCache.get(key)!;
+    const res = await this.storage.findTypeByName(name, snapshotId);
+    this.typeByNameCache.set(key, res);
+    return res;
+  }
+
+  private async getTypeMembersCached(typeId: string): Promise<TypeMember[]> {
+    if (this.typeMembersCache.has(typeId)) return this.typeMembersCache.get(typeId)!;
+    const members = await this.storage.getTypeMembers(typeId);
+    this.typeMembersCache.set(typeId, members);
+    return members;
+  }
+
+  private async getImplementingClassesCached(interfaceId: string): Promise<TypeDefinition[]> {
+    if (this.implementingClassesCache.has(interfaceId)) return this.implementingClassesCache.get(interfaceId)!;
+    const classes = await this.storage.getImplementingClasses(interfaceId);
+    this.implementingClassesCache.set(interfaceId, classes);
+    return classes;
+  }
+
+  private async collectClassAndParentsCached(typeId: string, snapshotId: string, maxDepth = 5): Promise<string[]> {
+    const key = `${snapshotId}:${typeId}`;
+    if (this.extendsChainCache.has(key)) return this.extendsChainCache.get(key)!;
+    const ids = await this.collectClassAndParents(typeId, snapshotId, maxDepth);
+    this.extendsChainCache.set(key, ids);
+    return ids;
   }
 }
