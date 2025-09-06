@@ -903,6 +903,29 @@ export class CallGraphAnalyzer {
         if (!map.has(name)) map.set(name, []);
         map.get(name)!.push(...nodes);
       }
+      // Default export assignments: export default <expr>
+      try {
+        const typeChecker = this.project.getTypeChecker();
+        const exportAssignments = file.getExportAssignments();
+        for (const ea of exportAssignments) {
+          if (ea.isExportEquals()) continue; // Ignore 'export ='
+          const expr = ea.getExpression();
+          const collected: Node[] = [];
+          if (Node.isIdentifier(expr)) {
+            const sym = typeChecker.getSymbolAtLocation(expr);
+            const decls = sym?.getDeclarations() || [];
+            for (const d of decls) collected.push(d);
+          } else if (Node.isFunctionExpression(expr) || Node.isArrowFunction(expr)) {
+            collected.push(expr);
+          }
+          if (collected.length > 0) {
+            if (!map.has('default')) map.set('default', []);
+            map.get('default')!.push(...collected);
+          }
+        }
+      } catch {
+        // ignore default export assignment errors
+      }
       // Re-exports (named and wildcard)
       for (const ed of file.getExportDeclarations()) {
         const mod = ed.getModuleSpecifierValue();
