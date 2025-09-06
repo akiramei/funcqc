@@ -38,6 +38,7 @@ export class CallGraphAnalyzer {
   private logger: Logger | undefined;
   private profiler: PerformanceProfiler;
   private exportDeclarationsByFile: Map<string, ReadonlyMap<string, Node[]>> = new Map();
+  private precomputedExportsByFile: Map<string, Map<string, Node[]>> = new Map();
   private resolvingVisited: Set<string> = new Set();
   private importResolutionCache: Map<string, Node | undefined> = new Map();
   private importIndexCache: WeakMap<SourceFile, Map<string, ImportRecord>> = new WeakMap();
@@ -762,6 +763,18 @@ export class CallGraphAnalyzer {
       if (targetSourceFile) {
         this.profiler.recordDetail('import_resolution', 'files_found', 1);
         
+        // Precompute named exports and simple re-exports for this file (once)
+        this.ensurePrecomputedExportsForFile(targetSourceFile);
+        const preMap = this.precomputedExportsByFile.get(targetSourceFile.getFilePath());
+        if (preMap && preMap.has(exportedName)) {
+          const nodes = preMap.get(exportedName)!;
+          const fn = this.pickFunctionLike(nodes);
+          if (fn) {
+            this.importResolutionCache.set(cacheKey, fn);
+            return fn;
+          }
+        }
+
         // Get or create cached export declarations for this file
         const filePath = targetSourceFile.getFilePath();
         let fileExportsCache = this.exportDeclarationsByFile.get(filePath);
@@ -866,6 +879,59 @@ export class CallGraphAnalyzer {
   protected findProjectRoot(): string {
     // Simplified project root detection without require()
     return process.cwd();
+  }
+
+  /**
+   * Precompute exported declarations for a file, including named re-exports
+   */
+  private ensurePrecomputedExportsForFile(file: SourceFile): void {
+    const filePath = file.getFilePath();
+    if (this.precomputedExportsByFile.has(filePath)) return;
+
+    const map = new Map<string, Node[]>();
+    try {
+      const direct = file.getExportedDeclarations();
+      for (const [name, nodes] of direct) {
+        if (!map.has(name)) map.set(name, []);
+        map.get(name)!.push(...nodes);
+      }
+      // Named re-exports
+      for (const ed of file.getExportDeclarations()) {
+        const mod = ed.getModuleSpecifierValue();
+        if (!mod) continue;
+        const named = ed.getNamedExports();
+        for (const spec of named) {
+          const local = spec.getNameNode().getText();
+          const aliasNode = spec.getAliasNode();
+          const exportedAs = aliasNode ? aliasNode.getText() : local;
+          try {
+            const decl = this.resolveImportedSymbolWithCache(mod, local, filePath);
+            if (decl) {
+              if (!map.has(exportedAs)) map.set(exportedAs, []);
+              map.get(exportedAs)!.push(decl);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+      this.precomputedExportsByFile.set(filePath, map);
+    } catch {
+      // ignore
+    }
+  }
+
+  private pickFunctionLike(nodes: Node[]): Node | undefined {
+    for (const n of nodes) {
+      if (this.isFunctionDeclaration(n)) return n;
+      if (Node.isVariableDeclaration(n)) {
+        const init = n.getInitializer();
+        if (init && (Node.isFunctionExpression(init) || Node.isArrowFunction(init))) {
+          return init;
+        }
+      }
+    }
+    return undefined;
   }
 
   /**
