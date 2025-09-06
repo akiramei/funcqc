@@ -42,6 +42,9 @@ export class CallGraphAnalyzer {
   private resolvingVisited: Set<string> = new Set();
   private importResolutionCache: Map<string, Node | undefined> = new Map();
   private importIndexCache: WeakMap<SourceFile, Map<string, ImportRecord>> = new WeakMap();
+  private tsconfigPathsLoaded = false;
+  private tsBaseUrl: string | null = null;
+  private tsPaths: Array<{ pattern: string; targets: string[] }> = [];
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
   constructor(
@@ -707,9 +710,16 @@ export class CallGraphAnalyzer {
           resolvedPath = path.resolve(moduleSpecifier);
         }
       } else {
-        // External module or unsupported pattern - CRITICAL FIX
-        this.profiler.recordDetail('import_resolution', 'external_modules', 1);
-        return undefined;
+        // Try tsconfig paths mapping for non-relative specifiers
+        this.loadTsConfigPathsOnce();
+        const mapped = this.resolveWithTsconfigPaths(moduleSpecifier, currentFilePath);
+        if (mapped) {
+          resolvedPath = mapped;
+        } else {
+          // External module or unsupported pattern - CRITICAL FIX
+          this.profiler.recordDetail('import_resolution', 'external_modules', 1);
+          return undefined;
+        }
       }
       
       // Try to find the source file with comprehensive extension support
@@ -882,6 +892,73 @@ export class CallGraphAnalyzer {
   }
 
   /**
+   * Load tsconfig paths once for alias-based resolution
+   */
+  private loadTsConfigPathsOnce(): void {
+    if (this.tsconfigPathsLoaded) return;
+    this.tsconfigPathsLoaded = true;
+    try {
+      const projectRoot = this.findProjectRoot();
+      const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
+      if (!fs.existsSync(tsconfigPath)) return;
+      const raw = fs.readFileSync(tsconfigPath, 'utf8');
+      const json = JSON.parse(raw);
+      const opts = json.compilerOptions || {};
+      const baseUrl = typeof opts.baseUrl === 'string' ? opts.baseUrl : '.';
+      const paths = opts.paths || {};
+      this.tsBaseUrl = baseUrl;
+      this.tsPaths = Object.keys(paths).map((k: string) => ({ pattern: k, targets: Array.isArray(paths[k]) ? paths[k] : [paths[k]] }));
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Resolve module specifier using tsconfig paths mapping
+   */
+  private resolveWithTsconfigPaths(moduleSpecifier: string, currentFilePath: string): string | null {
+    if (!this.tsPaths.length) return null;
+    const projectRoot = this.findProjectRoot();
+    const isVirtual = currentFilePath.startsWith('/virtual');
+
+    const tryTargets = (pattern: string, targets: string[]): string | null => {
+      // Support simple '*' wildcard mapping
+      const starIdx = pattern.indexOf('*');
+      const prefix = starIdx >= 0 ? pattern.slice(0, starIdx) : pattern;
+      const suffix = starIdx >= 0 ? pattern.slice(starIdx + 1) : '';
+      if (starIdx >= 0) {
+        if (!moduleSpecifier.startsWith(prefix) || !moduleSpecifier.endsWith(suffix)) return null;
+      } else {
+        if (moduleSpecifier !== pattern) return null;
+      }
+      const remainder = starIdx >= 0 ? moduleSpecifier.slice(prefix.length, moduleSpecifier.length - suffix.length) : '';
+      for (const t of targets) {
+        const replaced = t.replace('*', remainder);
+        const base = this.tsBaseUrl || '.';
+        const abs = isVirtual
+          ? `/virtual/${[projectRoot.replace(/^\/+/, ''), base, replaced].join('/')}`
+          : path.join(projectRoot, base, replaced);
+        // Probe with known extensions and index files
+        const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+        const hasKnownExt = knownExts.some(ext => abs.endsWith(ext));
+        const candidates = hasKnownExt ? [''] : [...knownExts, '/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
+        for (const ext of candidates) {
+          const tryPathRaw = abs + ext;
+          const tryPath = abs.startsWith('/virtual/') ? tryPathRaw.replace(/\\/g, '/') : path.resolve(tryPathRaw);
+          if (fs.existsSync(tryPath)) return tryPath;
+        }
+      }
+      return null;
+    };
+
+    for (const { pattern, targets } of this.tsPaths) {
+      const res = tryTargets(pattern, targets);
+      if (res) return res;
+    }
+    return null;
+  }
+
+  /**
    * Precompute exported declarations for a file, including named and wildcard re-exports (recursive)
    */
   private ensurePrecomputedExportsForFile(file: SourceFile): void {
@@ -1004,7 +1081,11 @@ export class CallGraphAnalyzer {
     } else if (moduleSpecifier.startsWith('/')) {
       resolvedPath = isVirtual ? `/virtual/${moduleSpecifier.replace(/^\/+/, '')}` : path.resolve(moduleSpecifier);
     } else {
-      return undefined; // external or unsupported
+      // Try tsconfig paths mapping
+      this.loadTsConfigPathsOnce();
+      const mapped = this.resolveWithTsconfigPaths(moduleSpecifier, currentFilePath);
+      if (!mapped) return undefined; // external or unsupported
+      resolvedPath = mapped;
     }
 
     const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
