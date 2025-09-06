@@ -882,36 +882,62 @@ export class CallGraphAnalyzer {
   }
 
   /**
-   * Precompute exported declarations for a file, including named re-exports
+   * Precompute exported declarations for a file, including named and wildcard re-exports (recursive)
    */
   private ensurePrecomputedExportsForFile(file: SourceFile): void {
+    const visited = new Set<string>();
+    this.precomputeExportsRecursive(file, visited);
+  }
+
+  private precomputeExportsRecursive(file: SourceFile, visited: Set<string>): void {
     const filePath = file.getFilePath();
     if (this.precomputedExportsByFile.has(filePath)) return;
+    if (visited.has(filePath)) return;
+    visited.add(filePath);
 
     const map = new Map<string, Node[]>();
     try {
+      // Direct exports
       const direct = file.getExportedDeclarations();
       for (const [name, nodes] of direct) {
         if (!map.has(name)) map.set(name, []);
         map.get(name)!.push(...nodes);
       }
-      // Named re-exports
+      // Re-exports (named and wildcard)
       for (const ed of file.getExportDeclarations()) {
         const mod = ed.getModuleSpecifierValue();
         if (!mod) continue;
         const named = ed.getNamedExports();
-        for (const spec of named) {
-          const local = spec.getNameNode().getText();
-          const aliasNode = spec.getAliasNode();
-          const exportedAs = aliasNode ? aliasNode.getText() : local;
-          try {
-            const decl = this.resolveImportedSymbolWithCache(mod, local, filePath);
-            if (decl) {
-              if (!map.has(exportedAs)) map.set(exportedAs, []);
-              map.get(exportedAs)!.push(decl);
+        if (named.length > 0) {
+          // Named re-exports
+          for (const spec of named) {
+            const local = spec.getNameNode().getText();
+            const aliasNode = spec.getAliasNode();
+            const exportedAs = aliasNode ? aliasNode.getText() : local;
+            try {
+              const decl = this.resolveImportedSymbolWithCache(mod, local, filePath);
+              if (decl) {
+                if (!map.has(exportedAs)) map.set(exportedAs, []);
+                map.get(exportedAs)!.push(decl);
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
+          }
+        } else {
+          // Wildcard re-exports: export * from './mod'
+          const target = this.resolveModuleToSourceFile(filePath, mod);
+          if (target) {
+            // Ensure target precomputed first (recursive)
+            this.precomputeExportsRecursive(target, visited);
+            const tmap = this.precomputedExportsByFile.get(target.getFilePath());
+            if (tmap) {
+              for (const [name, nodes] of tmap) {
+                if (name === 'default') continue; // export * does not re-export default
+                if (!map.has(name)) map.set(name, []);
+                map.get(name)!.push(...nodes);
+              }
+            }
           }
         }
       }
@@ -930,6 +956,49 @@ export class CallGraphAnalyzer {
           return init;
         }
       }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve module specifier to source file (best-effort), adding to project if on disk
+   */
+  private resolveModuleToSourceFile(currentFilePath: string, moduleSpecifier: string): SourceFile | undefined {
+    const isVirtual = currentFilePath.startsWith('/virtual');
+    let resolvedPath: string;
+    if (moduleSpecifier.startsWith('./') || moduleSpecifier.startsWith('../')) {
+      const baseDir = path.dirname(path.resolve(currentFilePath));
+      resolvedPath = path.resolve(baseDir, moduleSpecifier);
+    } else if (moduleSpecifier.startsWith('@/') || moduleSpecifier.startsWith('#/')) {
+      const projectRoot = this.findProjectRoot();
+      if (moduleSpecifier.startsWith('@/')) {
+        const relativePath = moduleSpecifier.substring(2);
+        resolvedPath = isVirtual ? `/virtual/${[projectRoot.replace(/^\/+/, ''), 'src', relativePath].join('/')}` : path.join(projectRoot, 'src', relativePath);
+      } else {
+        const relativePath = moduleSpecifier.substring(2);
+        resolvedPath = isVirtual ? `/virtual/${[projectRoot.replace(/^\/+/, ''), relativePath].join('/')}` : path.join(projectRoot, relativePath);
+      }
+    } else if (moduleSpecifier.startsWith('/')) {
+      resolvedPath = isVirtual ? `/virtual/${moduleSpecifier.replace(/^\/+/, '')}` : path.resolve(moduleSpecifier);
+    } else {
+      return undefined; // external or unsupported
+    }
+
+    const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+    const hasKnownExt = knownExts.some(ext => resolvedPath.endsWith(ext));
+    const extensionCandidates = hasKnownExt ? [''] : [...knownExts, '/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
+    for (const ext of extensionCandidates) {
+      const tryPathRaw = resolvedPath + ext;
+      const tryPath = resolvedPath.startsWith('/virtual/') ? tryPathRaw.replace(/\\/g, '/') : path.resolve(tryPathRaw);
+      let sf = this.project.getSourceFile(tryPath);
+      if (!sf && fs.existsSync(tryPath)) {
+        try {
+          sf = this.project.addSourceFileAtPath(tryPath);
+        } catch {
+          // ignore
+        }
+      }
+      if (sf) return sf;
     }
     return undefined;
   }
