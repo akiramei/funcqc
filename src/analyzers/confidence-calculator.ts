@@ -18,7 +18,8 @@ export class ConfidenceCalculator {
     'local_exact': 1.0,
     'import_exact': 0.95,
     'cha_resolved': 0.8,
-    'rta_resolved': 0.9,
+    // Stage 2: RTA は到達型の特定に成功したケースでは安全側に引き上げる
+    'rta_resolved': 0.95,
     'runtime_confirmed': 1.0,
     'external_detected': 0.7,
     'callback_registration': 0.8
@@ -67,6 +68,11 @@ export class ConfidenceCalculator {
     if (edge.candidates.length > 1) {
       const penalty = Math.min(0.2, (edge.candidates.length - 1) * 0.05);
       confidence = Math.max(0.5, confidence - penalty);
+    }
+    
+    // Unique candidate boost for CHA/RTA（解決先が一意 → 高信頼と見なす）
+    if (edge.candidates.length === 1 && (edge.resolutionLevel === 'rta_resolved' || edge.resolutionLevel === 'cha_resolved')) {
+      confidence = Math.max(confidence, edge.resolutionLevel === 'rta_resolved' ? 0.96 : 0.9);
     }
     
     // Execution count boost (if available)

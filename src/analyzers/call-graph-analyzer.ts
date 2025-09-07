@@ -4,6 +4,13 @@ import {
   CallExpression,
   Node,
   TypeChecker,
+  VariableDeclaration,
+  ParameterDeclaration,
+  ClassDeclaration,
+  NewExpression,
+  BinaryExpression,
+  CallExpression as TsCallExpression,
+  Identifier,
 } from 'ts-morph';
 import { v4 as uuidv4 } from 'uuid';
 import { CallEdge } from '../types';
@@ -31,8 +38,13 @@ export class CallGraphAnalyzer {
   private logger: Logger | undefined;
   private profiler: PerformanceProfiler;
   private exportDeclarationsByFile: Map<string, ReadonlyMap<string, Node[]>> = new Map();
+  private precomputedExportsByFile: Map<string, Map<string, Node[]>> = new Map();
+  private resolvingVisited: Set<string> = new Set();
   private importResolutionCache: Map<string, Node | undefined> = new Map();
   private importIndexCache: WeakMap<SourceFile, Map<string, ImportRecord>> = new WeakMap();
+  private tsconfigPathsLoaded = false;
+  private tsBaseUrl: string | null = null;
+  private tsPaths: Array<{ pattern: string; targets: string[] }> = [];
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
   constructor(
@@ -154,7 +166,11 @@ export class CallGraphAnalyzer {
   /**
    * Pre-filter call expressions using identifier name matching
    */
-  private preFilterCallExpressions(callExpressions: CallExpression[], candidateNames: Set<string>): CallExpression[] {
+  private preFilterCallExpressions(
+    callExpressions: CallExpression[],
+    candidateNames: Set<string>,
+    importIndex: Map<string, ImportRecord>
+  ): CallExpression[] {
     return callExpressions.filter(callExpr => {
       const expr = callExpr.getExpression();
       
@@ -166,7 +182,8 @@ export class CallGraphAnalyzer {
       // For simple identifier calls, check if name matches candidate functions
       if (Node.isIdentifier(expr)) {
         const callName = expr.getText();
-        return candidateNames.has(callName);
+        // ローカル定義名 or import 由来のエイリアス名は保持
+        return candidateNames.has(callName) || importIndex.has(callName);
       }
       
       // Keep other complex expressions (computed calls, etc.)
@@ -186,7 +203,8 @@ export class CallGraphAnalyzer {
     importIndex: Map<string, ImportRecord>,
     allowedFunctionIdSet: Set<string>,
     getFunctionIdByDeclaration: (decl: Node) => string | undefined,
-    candidateNames?: Set<string>
+    candidateNames: Set<string> | undefined,
+    functionNode: Node
   ): Promise<CallEdge[]> {
     const callEdges: CallEdge[] = [];
     let idMismatchCount = 0;
@@ -194,8 +212,104 @@ export class CallGraphAnalyzer {
     
     // Apply pre-filtering to reduce resolveCallee calls
     const filteredCallExpressions = candidateNames ? 
-      this.preFilterCallExpressions(callExpressions, candidateNames) : 
+      this.preFilterCallExpressions(callExpressions, candidateNames, importIndex) : 
       callExpressions;
+
+    // Build a lightweight local RTA map: identifier -> ClassDeclaration node
+    const localClassMap = new Map<string, ClassDeclaration>();
+    try {
+      functionNode.forEachDescendant((n, trav) => {
+        // Skip nested function scopes
+        if (this.isFunctionDeclaration(n) && n !== functionNode) {
+          trav.skip();
+          return;
+        }
+        // Variable declarations: const x = new ClassName()
+        if (Node.isVariableDeclaration(n)) {
+          const vd: VariableDeclaration = n;
+          const name = vd.getName();
+          const init = vd.getInitializer();
+          if (name && init) {
+            if (Node.isNewExpression(init)) {
+              const newExpr: NewExpression = init;
+              const expr = newExpr.getExpression();
+              const sym = expr ? typeChecker.getSymbolAtLocation(expr) : undefined;
+              const decl = sym?.getDeclarations()?.[0];
+              if (decl && Node.isClassDeclaration(decl)) {
+                localClassMap.set(name, decl);
+              }
+            } else if (Node.isCallExpression(init)) {
+              // Factory return type → class symbol
+              try {
+                const t = typeChecker.getTypeAtLocation(init);
+                const sym = t?.getSymbol();
+                const decl = sym?.getDeclarations()?.[0];
+                if (decl && Node.isClassDeclaration(decl)) {
+                  localClassMap.set(name, decl);
+                }
+              } catch {
+                // ignore
+              }
+            } else if (Node.isIdentifier(init)) {
+              // Simple alias: const y = x; if x already mapped to a class, map y as well
+              const aliasSource = localClassMap.get(init.getText());
+              if (aliasSource) {
+                localClassMap.set(name, aliasSource);
+              }
+            }
+          }
+        }
+        // Simple assignment propagation: x = new C(), x = factory(), x = y
+        if (Node.isBinaryExpression(n)) {
+          const be: BinaryExpression = n;
+          const op = be.getOperatorToken().getText();
+          if (op === '=') {
+            const left = be.getLeft();
+            const right = be.getRight();
+            if (Node.isIdentifier(left)) {
+              const leftName: string = (left as Identifier).getText();
+              if (Node.isNewExpression(right)) {
+                const expr = right.getExpression();
+                const sym = expr ? typeChecker.getSymbolAtLocation(expr) : undefined;
+                const decl = sym?.getDeclarations()?.[0];
+                if (decl && Node.isClassDeclaration(decl)) {
+                  localClassMap.set(leftName, decl);
+                }
+              } else if (Node.isCallExpression(right)) {
+                try {
+                  const t = typeChecker.getTypeAtLocation(right as TsCallExpression);
+                  const sym = t?.getSymbol();
+                  const decl = sym?.getDeclarations()?.[0];
+                  if (decl && Node.isClassDeclaration(decl)) {
+                    localClassMap.set(leftName, decl);
+                  }
+                } catch {
+                  // ignore
+                }
+              } else if (Node.isIdentifier(right)) {
+                const src = localClassMap.get(right.getText());
+                if (src) {
+                  localClassMap.set(leftName, src);
+                }
+              }
+            }
+          }
+        }
+        // Function parameters typed as ClassName
+        if (Node.isParameterDeclaration(n)) {
+          const pn: ParameterDeclaration = n;
+          const name = pn.getName();
+          const t = pn.getType();
+          const sym = t?.getSymbol();
+          const decl = sym?.getDeclarations()?.[0];
+          if (name && decl && Node.isClassDeclaration(decl)) {
+            localClassMap.set(name, decl);
+          }
+        }
+      });
+    } catch {
+      // Non-fatal: local RTA map is best-effort
+    }
 
     for (const callExpr of filteredCallExpressions) {
       try {
@@ -227,6 +341,55 @@ export class CallGraphAnalyzer {
             resolution
           );
           callEdges.push(callEdge);
+        } else if (resolution.kind === "unknown") {
+          // Fallback: property access via import alias (e.g., ns.foo()) that symbol-resolver couldn't map
+          const expr = callExpr.getExpression();
+          if (Node.isPropertyAccessExpression(expr)) {
+            const left = expr.getExpression();
+            const name = expr.getNameNode().getText();
+            if (Node.isIdentifier(left)) {
+              const alias = left.getText();
+              const rec = importIndex.get(alias);
+              if (rec) {
+                // Try resolving through import cache explicitly
+                const decl = this.resolveImportedSymbolWithCache(rec.module, name, filePath);
+                if (decl) {
+                  const fid = getFunctionIdByDeclaration(decl);
+                  if (fid && allowedFunctionIdSet.has(fid)) {
+                    const fallbackResolution = { kind: 'internal' as const, functionId: fid, confidence: 0.95, via: 'fallback' as const };
+                    const callEdge = this.createCallEdgeFromResolution(
+                      callExpr,
+                      sourceFunctionId,
+                      fallbackResolution
+                    );
+                    callEdges.push(callEdge);
+                    resolvedCount++;
+                  }
+                }
+              } else {
+                // Local RTA fallback: identifier mapped to a known ClassDeclaration
+                const classDecl = localClassMap.get(alias);
+                if (classDecl) {
+                  // Find method in class
+                  const methodDecl = classDecl.getInstanceMethods().find(m => m.getName() === name)
+                    || classDecl.getMethods().find(m => m.getName() === name);
+                  if (methodDecl) {
+                    const fid = getFunctionIdByDeclaration(methodDecl);
+                    if (fid && allowedFunctionIdSet.has(fid)) {
+                      const fallbackResolution = { kind: 'internal' as const, functionId: fid, confidence: 0.95, via: 'fallback' as const };
+                      const callEdge = this.createCallEdgeFromResolution(
+                        callExpr,
+                        sourceFunctionId,
+                        fallbackResolution
+                      );
+                      callEdges.push(callEdge);
+                      resolvedCount++;
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
         // External calls are ignored as they don't contribute to circular dependencies
         // Unknown calls are also ignored as they're likely external or unresolvable
@@ -362,7 +525,8 @@ export class CallGraphAnalyzer {
             importIndex,
             actualAllowedFunctionIdSet,
             declarationLookup,
-            candidateNames
+            candidateNames,
+            functionNode
           );
           
           
@@ -482,6 +646,8 @@ export class CallGraphAnalyzer {
     exportedName: string, 
     currentFilePath: string
   ): Node | undefined {
+    // トップレベル呼び出しかどうかを判定（循環検出用 visited のスコープ抑制）
+    const __top = this.resolvingVisited.size === 0;
     
     const cacheKey = `${currentFilePath}:${moduleSpecifier}:${exportedName}`;
     
@@ -494,6 +660,7 @@ export class CallGraphAnalyzer {
     this.profiler.recordDetail('import_resolution', 'cache_misses', 1);
     
     return measureSync(() => {
+      try {
       if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
         console.log(`       Processing path resolution for ${moduleSpecifier}`);
       }
@@ -551,9 +718,16 @@ export class CallGraphAnalyzer {
           resolvedPath = path.resolve(moduleSpecifier);
         }
       } else {
-        // External module or unsupported pattern - CRITICAL FIX
-        this.profiler.recordDetail('import_resolution', 'external_modules', 1);
-        return undefined;
+        // Try tsconfig paths mapping for non-relative specifiers
+        this.loadTsConfigPathsOnce();
+        const mapped = this.resolveWithTsconfigPaths(moduleSpecifier, currentFilePath);
+        if (mapped) {
+          resolvedPath = mapped;
+        } else {
+          // External module or unsupported pattern - CRITICAL FIX
+          this.profiler.recordDetail('import_resolution', 'external_modules', 1);
+          return undefined;
+        }
       }
       
       // Try to find the source file with comprehensive extension support
@@ -607,6 +781,18 @@ export class CallGraphAnalyzer {
       if (targetSourceFile) {
         this.profiler.recordDetail('import_resolution', 'files_found', 1);
         
+        // Precompute named exports and simple re-exports for this file (once)
+        this.ensurePrecomputedExportsForFile(targetSourceFile);
+        const preMap = this.precomputedExportsByFile.get(targetSourceFile.getFilePath());
+        if (preMap && preMap.has(exportedName)) {
+          const nodes = preMap.get(exportedName)!;
+          const fn = this.pickFunctionLike(nodes);
+          if (fn) {
+            this.importResolutionCache.set(cacheKey, fn);
+            return fn;
+          }
+        }
+
         // Get or create cached export declarations for this file
         const filePath = targetSourceFile.getFilePath();
         let fileExportsCache = this.exportDeclarationsByFile.get(filePath);
@@ -621,21 +807,77 @@ export class CallGraphAnalyzer {
           this.profiler.recordDetail('import_resolution', 'export_cache_builds', 1);
         }
         
-        // Find the exported function
+        // Find the exported function or re-export chain target
         const decls = fileExportsCache.get(exportedName);
         this.logger?.debug(`Exported declarations for ${exportedName}: ${decls?.length || 0} found`);
         
-        if (decls && decls.length > 0) {
-          // Return the first declaration (function/method)
-          for (const decl of decls) {
-            this.logger?.debug(`Checking declaration: ${decl.getKindName()}`);
-            if (this.isFunctionDeclaration(decl)) {
-              this.logger?.debug(`Found function declaration for ${exportedName}`);
-              this.profiler.recordDetail('import_resolution', 'successful_resolutions', 1);
-              // Cache the successful result
-              this.importResolutionCache.set(cacheKey, decl);
-              return decl;
+        // Helper: attempt to extract function-like node from a declaration
+        const extractFunctionLike = (n: Node): Node | undefined => {
+          if (this.isFunctionDeclaration(n)) return n;
+          // Variable declaration with function initializer
+          if (Node.isVariableDeclaration(n)) {
+            const init = n.getInitializer();
+            if (init && (Node.isFunctionExpression(init) || Node.isArrowFunction(init))) {
+              return init;
             }
+          }
+          return undefined;
+        };
+
+        if (decls && decls.length > 0) {
+          for (const decl of decls) {
+            const fn = extractFunctionLike(decl);
+            if (fn) {
+              this.profiler.recordDetail('import_resolution', 'successful_resolutions', 1);
+              this.importResolutionCache.set(cacheKey, fn);
+              return fn;
+            }
+          }
+        } else {
+          // Re-export handling: export { foo as bar } from './mod'; export * from './mod';
+          try {
+            const exportDecls = targetSourceFile.getExportDeclarations();
+            for (const ed of exportDecls) {
+              const mod = ed.getModuleSpecifierValue();
+              if (!mod) continue; // skip local re-exports without module specifier
+
+              // 1) Named re-exports
+              const named = ed.getNamedExports();
+              for (const spec of named) {
+                const local = spec.getNameNode().getText();
+                const aliasNode = spec.getAliasNode();
+                const exportedAs = aliasNode ? aliasNode.getText() : local;
+                if (exportedAs === exportedName) {
+                  // Prevent cycles
+                  const vkey = `${currentFilePath}::${moduleSpecifier}::${exportedName}`;
+                  if (!this.resolvingVisited.has(vkey)) {
+                    this.resolvingVisited.add(vkey);
+                    const res = this.resolveImportedSymbolWithCache(mod, local, currentFilePath);
+                    if (res) {
+                      this.importResolutionCache.set(cacheKey, res);
+                      return res;
+                    }
+                  }
+                }
+              }
+
+              // 2) Wildcard re-exports: export * from './mod'
+              if (ed.isNamespaceExport?.()) {
+                // namespace export (export * as ns from ...) — not applicable here
+              } else if (ed.isTypeOnly?.() === false && named.length === 0) {
+                const vkey2 = `${currentFilePath}::${moduleSpecifier}::*::${exportedName}`;
+                if (!this.resolvingVisited.has(vkey2)) {
+                  this.resolvingVisited.add(vkey2);
+                  const res = this.resolveImportedSymbolWithCache(mod, exportedName, currentFilePath);
+                  if (res) {
+                    this.importResolutionCache.set(cacheKey, res);
+                    return res;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            this.logger?.debug(`Re-export resolution failed: ${String(e)}`);
           }
         }
       } else {
@@ -646,6 +888,9 @@ export class CallGraphAnalyzer {
       // Cache the failed result to avoid repeated attempts
       this.importResolutionCache.set(cacheKey, undefined);
       return undefined;
+      } finally {
+        if (__top) this.resolvingVisited.clear();
+      }
     }, this.profiler, 'resolve_imported_symbol');
   }
 
@@ -655,6 +900,223 @@ export class CallGraphAnalyzer {
   protected findProjectRoot(): string {
     // Simplified project root detection without require()
     return process.cwd();
+  }
+
+  /**
+   * Load tsconfig paths once for alias-based resolution
+   */
+  private loadTsConfigPathsOnce(): void {
+    if (this.tsconfigPathsLoaded) return;
+    this.tsconfigPathsLoaded = true;
+    try {
+      const projectRoot = this.findProjectRoot();
+      const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
+      if (!fs.existsSync(tsconfigPath)) return;
+      const raw = fs.readFileSync(tsconfigPath, 'utf8');
+      const json = JSON.parse(raw);
+      const opts = json.compilerOptions || {};
+      const baseUrl = typeof opts.baseUrl === 'string' ? opts.baseUrl : '.';
+      const paths = opts.paths || {};
+      this.tsBaseUrl = baseUrl;
+      this.tsPaths = Object.keys(paths).map((k: string) => ({ pattern: k, targets: Array.isArray(paths[k]) ? paths[k] : [paths[k]] }));
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Resolve module specifier using tsconfig paths mapping
+   */
+  private resolveWithTsconfigPaths(moduleSpecifier: string, currentFilePath: string): string | null {
+    if (!this.tsPaths.length) return null;
+    const projectRoot = this.findProjectRoot();
+    const isVirtual = currentFilePath.startsWith('/virtual');
+
+    const tryTargets = (pattern: string, targets: string[]): string | null => {
+      // Support simple '*' wildcard mapping
+      const starIdx = pattern.indexOf('*');
+      const prefix = starIdx >= 0 ? pattern.slice(0, starIdx) : pattern;
+      const suffix = starIdx >= 0 ? pattern.slice(starIdx + 1) : '';
+      if (starIdx >= 0) {
+        if (!moduleSpecifier.startsWith(prefix) || !moduleSpecifier.endsWith(suffix)) return null;
+      } else {
+        if (moduleSpecifier !== pattern) return null;
+      }
+      const remainder = starIdx >= 0 ? moduleSpecifier.slice(prefix.length, moduleSpecifier.length - suffix.length) : '';
+      for (const t of targets) {
+        // '*' が複数含まれても全て置換できるようにする
+        const replaced = t.replace(/\*/g, remainder);
+        const base = this.tsBaseUrl || '.';
+        const abs = isVirtual
+          ? `/virtual/${[projectRoot.replace(/^\/+/, ''), base, replaced].join('/')}`
+          : path.join(projectRoot, base, replaced);
+        // Probe with known extensions and index files
+        const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+        const hasKnownExt = knownExts.some(ext => abs.endsWith(ext));
+        const candidates = hasKnownExt ? [''] : [...knownExts, '/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
+        for (const ext of candidates) {
+          const tryPathRaw = abs + ext;
+          const tryPath = abs.startsWith('/virtual/') ? tryPathRaw.replace(/\\/g, '/') : path.resolve(tryPathRaw);
+          if (fs.existsSync(tryPath)) return tryPath;
+        }
+      }
+      return null;
+    };
+
+    for (const { pattern, targets } of this.tsPaths) {
+      const res = tryTargets(pattern, targets);
+      if (res) return res;
+    }
+    return null;
+  }
+
+  /**
+   * Precompute exported declarations for a file, including named and wildcard re-exports (recursive)
+   */
+  private ensurePrecomputedExportsForFile(file: SourceFile): void {
+    const visited = new Set<string>();
+    this.precomputeExportsRecursive(file, visited);
+  }
+
+  private precomputeExportsRecursive(file: SourceFile, visited: Set<string>): void {
+    const filePath = file.getFilePath();
+    if (this.precomputedExportsByFile.has(filePath)) return;
+    if (visited.has(filePath)) return;
+    visited.add(filePath);
+
+    const map = new Map<string, Node[]>();
+    try {
+      // Direct exports
+      const direct = file.getExportedDeclarations();
+      for (const [name, nodes] of direct) {
+        if (!map.has(name)) map.set(name, []);
+        map.get(name)!.push(...nodes);
+      }
+      // Default export assignments: export default <expr>
+      try {
+        const typeChecker = this.project.getTypeChecker();
+        const exportAssignments = file.getExportAssignments();
+        for (const ea of exportAssignments) {
+          if (ea.isExportEquals()) continue; // Ignore 'export ='
+          const expr = ea.getExpression();
+          const collected: Node[] = [];
+          if (Node.isIdentifier(expr)) {
+            const sym = typeChecker.getSymbolAtLocation(expr);
+            const decls = sym?.getDeclarations() || [];
+            for (const d of decls) collected.push(d);
+          } else if (Node.isFunctionExpression(expr) || Node.isArrowFunction(expr)) {
+            collected.push(expr);
+          }
+          if (collected.length > 0) {
+            if (!map.has('default')) map.set('default', []);
+            map.get('default')!.push(...collected);
+          }
+        }
+      } catch {
+        // ignore default export assignment errors
+      }
+      // Re-exports (named and wildcard)
+      for (const ed of file.getExportDeclarations()) {
+        const mod = ed.getModuleSpecifierValue();
+        if (!mod) continue;
+        const named = ed.getNamedExports();
+        if (named.length > 0) {
+          // Named re-exports
+          for (const spec of named) {
+            const local = spec.getNameNode().getText();
+            const aliasNode = spec.getAliasNode();
+            const exportedAs = aliasNode ? aliasNode.getText() : local;
+            try {
+              const decl = this.resolveImportedSymbolWithCache(mod, local, filePath);
+              if (decl) {
+                if (!map.has(exportedAs)) map.set(exportedAs, []);
+                map.get(exportedAs)!.push(decl);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        } else {
+          // Wildcard re-exports: export * from './mod'
+          const target = this.resolveModuleToSourceFile(filePath, mod);
+          if (target) {
+            // Ensure target precomputed first (recursive)
+            this.precomputeExportsRecursive(target, visited);
+            const tmap = this.precomputedExportsByFile.get(target.getFilePath());
+            if (tmap) {
+              for (const [name, nodes] of tmap) {
+                if (name === 'default') continue; // export * does not re-export default
+                if (!map.has(name)) map.set(name, []);
+                map.get(name)!.push(...nodes);
+              }
+            }
+          }
+        }
+      }
+      this.precomputedExportsByFile.set(filePath, map);
+    } catch {
+      // ignore
+    }
+  }
+
+  private pickFunctionLike(nodes: Node[]): Node | undefined {
+    for (const n of nodes) {
+      if (this.isFunctionDeclaration(n)) return n;
+      if (Node.isVariableDeclaration(n)) {
+        const init = n.getInitializer();
+        if (init && (Node.isFunctionExpression(init) || Node.isArrowFunction(init))) {
+          return init;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve module specifier to source file (best-effort), adding to project if on disk
+   */
+  private resolveModuleToSourceFile(currentFilePath: string, moduleSpecifier: string): SourceFile | undefined {
+    const isVirtual = currentFilePath.startsWith('/virtual');
+    let resolvedPath: string;
+    if (moduleSpecifier.startsWith('./') || moduleSpecifier.startsWith('../')) {
+      const baseDir = path.dirname(path.resolve(currentFilePath));
+      resolvedPath = path.resolve(baseDir, moduleSpecifier);
+    } else if (moduleSpecifier.startsWith('@/') || moduleSpecifier.startsWith('#/')) {
+      const projectRoot = this.findProjectRoot();
+      if (moduleSpecifier.startsWith('@/')) {
+        const relativePath = moduleSpecifier.substring(2);
+        resolvedPath = isVirtual ? `/virtual/${[projectRoot.replace(/^\/+/, ''), 'src', relativePath].join('/')}` : path.join(projectRoot, 'src', relativePath);
+      } else {
+        const relativePath = moduleSpecifier.substring(2);
+        resolvedPath = isVirtual ? `/virtual/${[projectRoot.replace(/^\/+/, ''), relativePath].join('/')}` : path.join(projectRoot, relativePath);
+      }
+    } else if (moduleSpecifier.startsWith('/')) {
+      resolvedPath = isVirtual ? `/virtual/${moduleSpecifier.replace(/^\/+/, '')}` : path.resolve(moduleSpecifier);
+    } else {
+      // Try tsconfig paths mapping
+      this.loadTsConfigPathsOnce();
+      const mapped = this.resolveWithTsconfigPaths(moduleSpecifier, currentFilePath);
+      if (!mapped) return undefined; // external or unsupported
+      resolvedPath = mapped;
+    }
+
+    const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+    const hasKnownExt = knownExts.some(ext => resolvedPath.endsWith(ext));
+    const extensionCandidates = hasKnownExt ? [''] : [...knownExts, '/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
+    for (const ext of extensionCandidates) {
+      const tryPathRaw = resolvedPath + ext;
+      const tryPath = resolvedPath.startsWith('/virtual/') ? tryPathRaw.replace(/\\/g, '/') : path.resolve(tryPathRaw);
+      let sf = this.project.getSourceFile(tryPath);
+      if (!sf && fs.existsSync(tryPath)) {
+        try {
+          sf = this.project.addSourceFileAtPath(tryPath);
+        } catch {
+          // ignore
+        }
+      }
+      if (sf) return sf;
+    }
+    return undefined;
   }
 
   /**

@@ -275,7 +275,8 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       }
     }
     
-    // 関数/メソッド/コンストラクタ/関数式・アロー関数に対応
+    // 関数/メソッド/コンストラクタ/関数式・アロー関数、
+    // さらに変数宣言の初期化子が関数式/アロー関数のケースにも対応
     if (
       Node.isFunctionDeclaration(d) ||
       Node.isMethodDeclaration(d) ||
@@ -284,8 +285,16 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       Node.isArrowFunction(d)
     ) {
       const id = ctx.getFunctionIdByDeclaration(d);
-      
       if (id) return { functionId: id, decl: d };
+    }
+
+    // 例: export const foo = () => {} / function(){...}
+    if (Node.isVariableDeclaration(d)) {
+      const init = d.getInitializer();
+      if (init && (Node.isFunctionExpression(init) || Node.isArrowFunction(init))) {
+        const id = ctx.getFunctionIdByDeclaration(init);
+        if (id) return { functionId: id, decl: init };
+      }
     }
   }
   // If we still haven't found anything, try getting the aliased symbol as a fallback
@@ -374,9 +383,65 @@ export function resolveCallee(call: CallExpression | NewExpression, ctx: Resolve
     if (functionId) {
       return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: "symbol" };
     }
+    // Fallback: 左辺の型からプロパティシンボルを引く
+    try {
+      const leftType = ctx.typeChecker.getTypeAtLocation(left);
+      const prop = leftType?.getProperty?.(name as string);
+      if (prop) {
+        const byType = tryResolveInternalBySymbol(prop, ctx);
+        if (byType.functionId) {
+          return { kind: "internal", functionId: byType.functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: "symbol" };
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     // 解決不能: 外部の可能性もあるが証拠不足 → unknown
     return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_PROPERTY };
+  }
+
+  // element access 形式: obj['method'](...)
+  if (Node.isElementAccessExpression(expr)) {
+    const left = expr.getExpression();
+    const arg = expr.getArgumentExpression();
+    const name = arg && Node.isStringLiteral(arg) ? arg.getLiteralText() : undefined;
+    if (left && name) {
+      const leftNode = left as Node;
+      const modViaImport = resolveLeftModuleFromImports(leftNode, ctx);
+      if (modViaImport) {
+        const external = isExternalModule(modViaImport.module, ctx.internalModulePrefixes ?? []);
+        if (external) {
+          const id = `external:${modViaImport.module}:${name}`;
+          return { kind: 'external', module: modViaImport.module, member: name, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+        }
+        // 内部 import の場合は exported 名で直接解決を試みる
+        if (ctx.resolveImportedSymbol) {
+          const declNode = ctx.resolveImportedSymbol(modViaImport.module, name);
+          if (declNode) {
+            const fid = ctx.getFunctionIdByDeclaration(declNode);
+            if (fid) {
+              return { kind: 'internal', functionId: fid, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: 'symbol' };
+            }
+          }
+        }
+        // 続行: 下の型ベース解決にフォールバック
+      }
+      // Fallback: 左辺の型からプロパティを解決
+      try {
+        const leftType = ctx.typeChecker.getTypeAtLocation(leftNode);
+        const prop = leftType?.getProperty?.(name);
+        if (prop) {
+          const r = tryResolveInternalBySymbol(prop, ctx);
+          if (r.functionId) {
+            return { kind: 'internal', functionId: r.functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: 'symbol' };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return { kind: 'unknown', raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_PROPERTY };
   }
 
   // 素の識別子 foo(...)

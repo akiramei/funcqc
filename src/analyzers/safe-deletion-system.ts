@@ -37,6 +37,7 @@ export interface ValidationResult {
   errors: string[];
   warnings: string[];
   timestamp: string;
+  performed?: boolean; // 実際に検証を実施したか（ユーザー責務=未実施の場合は false）
 }
 
 /**
@@ -82,7 +83,7 @@ export class SafeDeletionSystem {
       errors: [],
       warnings: [],
       preDeleteValidation: await this.runValidation('pre-delete', config),
-      postDeleteValidation: { typeCheckPassed: true, testsPassed: true, errors: [], warnings: [], timestamp: '' }
+      postDeleteValidation: { typeCheckPassed: true, testsPassed: true, errors: [], warnings: [], timestamp: '', performed: false }
     };
 
     console.log('🛡️  Starting safe deletion analysis...');
@@ -123,8 +124,7 @@ export class SafeDeletionSystem {
       }
 
       // Step 3: Pre-deletion validation (user responsibility)
-      console.log('   ℹ️  Pre-deletion validation is user responsibility');
-      console.log('   💡 Please ensure type check and tests pass before proceeding');
+      // Note: concise guidance printed in runValidation().
 
       // Step 4: Create backup if not dry run
       if (!config.dryRun && config.createBackup) {
@@ -139,8 +139,7 @@ export class SafeDeletionSystem {
         // Step 6: Post-deletion validation (user responsibility)
         result.postDeleteValidation = await this.runValidation('post-delete', config);
         
-        console.log('   ℹ️  Post-deletion validation is user responsibility');
-        console.log('   💡 Please run type check and tests to verify changes');
+        // Post-deletion guidance printed in runValidation()
       }
 
       return result;
@@ -288,13 +287,11 @@ export class SafeDeletionSystem {
       testsPassed: true,
       errors: [],
       warnings: [],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      performed: false
     };
 
-    console.log(`   ℹ️  ${phase} validation: User responsibility`);
-    console.log(`   💡 Please run your type check and tests separately:`);
-    console.log(`      npm run typecheck  # or your type check command`);
-    console.log(`      npm test           # or your test command`);
+    console.log(`   ℹ️  ${phase} validation: N/A (user responsibility; run: npm run typecheck; npm test)`);
 
     return result;
   }
