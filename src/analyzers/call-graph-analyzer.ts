@@ -166,7 +166,11 @@ export class CallGraphAnalyzer {
   /**
    * Pre-filter call expressions using identifier name matching
    */
-  private preFilterCallExpressions(callExpressions: CallExpression[], candidateNames: Set<string>): CallExpression[] {
+  private preFilterCallExpressions(
+    callExpressions: CallExpression[],
+    candidateNames: Set<string>,
+    importIndex: Map<string, ImportRecord>
+  ): CallExpression[] {
     return callExpressions.filter(callExpr => {
       const expr = callExpr.getExpression();
       
@@ -178,7 +182,8 @@ export class CallGraphAnalyzer {
       // For simple identifier calls, check if name matches candidate functions
       if (Node.isIdentifier(expr)) {
         const callName = expr.getText();
-        return candidateNames.has(callName);
+        // ローカル定義名 or import 由来のエイリアス名は保持
+        return candidateNames.has(callName) || importIndex.has(callName);
       }
       
       // Keep other complex expressions (computed calls, etc.)
@@ -207,7 +212,7 @@ export class CallGraphAnalyzer {
     
     // Apply pre-filtering to reduce resolveCallee calls
     const filteredCallExpressions = candidateNames ? 
-      this.preFilterCallExpressions(callExpressions, candidateNames) : 
+      this.preFilterCallExpressions(callExpressions, candidateNames, importIndex) : 
       callExpressions;
 
     // Build a lightweight local RTA map: identifier -> ClassDeclaration node
