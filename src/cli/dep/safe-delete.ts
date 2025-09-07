@@ -376,13 +376,13 @@ function outputValidationResults(result: import('../../analyzers/safe-deletion-s
   console.log('\n🔍 Validation Results:');
   const fmt = (passed: boolean | undefined, performed?: boolean) =>
     performed === false ? chalk.dim('N/A') : (passed ? '✅ PASS' : '❌ FAIL');
-  const prePerformed = result.preDeleteValidation.performed === false;
+  const prePerformed = result.preDeleteValidation.performed;
   const preType = fmt(result.preDeleteValidation.typeCheckPassed, prePerformed);
   const preTest = fmt(result.preDeleteValidation.testsPassed, prePerformed);
   console.log(`Pre-deletion:  TypeCheck: ${preType}, Tests: ${preTest}`);
   
   if (result.deletedFunctions.length > 0) {
-    const postPerformed = result.postDeleteValidation.performed === false;
+    const postPerformed = result.postDeleteValidation.performed;
     const postType = fmt(result.postDeleteValidation.typeCheckPassed, postPerformed);
     const postTest = fmt(result.postDeleteValidation.testsPassed, postPerformed);
     console.log(`Post-deletion: TypeCheck: ${postType}, Tests: ${postTest}`);
