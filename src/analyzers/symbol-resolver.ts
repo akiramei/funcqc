@@ -407,19 +407,25 @@ export function resolveCallee(call: CallExpression | NewExpression, ctx: Resolve
     const arg = expr.getArgumentExpression();
     const name = arg && Node.isStringLiteral(arg) ? arg.getLiteralText() : undefined;
     if (left && name) {
-      // import alias 経由か、左辺型のプロパティから解決
       const leftNode = left as Node;
       const modViaImport = resolveLeftModuleFromImports(leftNode, ctx);
       if (modViaImport) {
         const external = isExternalModule(modViaImport.module, ctx.internalModulePrefixes ?? []);
-        if (!external) {
-          // Try symbol on synthetic property name
-          const sym = arg ? ctx.typeChecker.getSymbolAtLocation(arg) : undefined;
-          const { functionId } = tryResolveInternalBySymbol(sym, ctx);
-          if (functionId) {
-            return { kind: 'internal', functionId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: 'symbol' };
+        if (external) {
+          const id = `external:${modViaImport.module}:${name}`;
+          return { kind: 'external', module: modViaImport.module, member: name, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+        }
+        // 内部 import の場合は exported 名で直接解決を試みる
+        if (ctx.resolveImportedSymbol) {
+          const declNode = ctx.resolveImportedSymbol(modViaImport.module, name);
+          if (declNode) {
+            const fid = ctx.getFunctionIdByDeclaration(declNode);
+            if (fid) {
+              return { kind: 'internal', functionId: fid, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: 'symbol' };
+            }
           }
         }
+        // 続行: 下の型ベース解決にフォールバック
       }
       // Fallback: 左辺の型からプロパティを解決
       try {

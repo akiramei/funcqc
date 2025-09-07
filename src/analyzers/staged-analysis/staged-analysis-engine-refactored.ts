@@ -243,7 +243,7 @@ export class StagedAnalysisEngine {
     const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
     // Stage 7: Callback analysis completed
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;
-    this.statistics.virtualEdgesCount = callbackResult.totalVirtualEdges;
+    this.statistics.virtualEdgesCount += callbackResult.totalVirtualEdges;
     
     this.logger.debug(`[CallbackRegistration] Stage 7 complete: ${callbackResult.totalRegistrations} registrations, ${callbackResult.totalVirtualEdges} virtual edges`);
     if (callbackResult.totalVirtualEdges > 0) {

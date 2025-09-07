@@ -641,6 +641,8 @@ export class CallGraphAnalyzer {
     exportedName: string, 
     currentFilePath: string
   ): Node | undefined {
+    // トップレベル呼び出しかどうかを判定（循環検出用 visited のスコープ抑制）
+    const __top = this.resolvingVisited.size === 0;
     
     const cacheKey = `${currentFilePath}:${moduleSpecifier}:${exportedName}`;
     
@@ -653,6 +655,7 @@ export class CallGraphAnalyzer {
     this.profiler.recordDetail('import_resolution', 'cache_misses', 1);
     
     return measureSync(() => {
+      try {
       if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
         console.log(`       Processing path resolution for ${moduleSpecifier}`);
       }
@@ -880,6 +883,9 @@ export class CallGraphAnalyzer {
       // Cache the failed result to avoid repeated attempts
       this.importResolutionCache.set(cacheKey, undefined);
       return undefined;
+      } finally {
+        if (__top) this.resolvingVisited.clear();
+      }
     }, this.profiler, 'resolve_imported_symbol');
   }
 
@@ -933,7 +939,8 @@ export class CallGraphAnalyzer {
       }
       const remainder = starIdx >= 0 ? moduleSpecifier.slice(prefix.length, moduleSpecifier.length - suffix.length) : '';
       for (const t of targets) {
-        const replaced = t.replace('*', remainder);
+        // '*' が複数含まれても全て置換できるようにする
+        const replaced = t.replace(/\*/g, remainder);
         const base = this.tsBaseUrl || '.';
         const abs = isVirtual
           ? `/virtual/${[projectRoot.replace(/^\/+/, ''), base, replaced].join('/')}`

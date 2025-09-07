@@ -374,13 +374,17 @@ function outputSummarySection(result: import('../../analyzers/safe-deletion-syst
  */
 function outputValidationResults(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   console.log('\n🔍 Validation Results:');
-  const preType = result.preDeleteValidation.typeCheckPassed ? '✅ PASS' : '❌ FAIL';
-  const preTest = result.preDeleteValidation.testsPassed ? '✅ PASS' : '❌ FAIL';
+  const fmt = (passed: boolean | undefined, performed?: boolean) =>
+    performed === false ? chalk.dim('N/A') : (passed ? '✅ PASS' : '❌ FAIL');
+  const prePerformed = (result.preDeleteValidation as any).performed === false;
+  const preType = fmt(result.preDeleteValidation.typeCheckPassed, prePerformed);
+  const preTest = fmt(result.preDeleteValidation.testsPassed, prePerformed);
   console.log(`Pre-deletion:  TypeCheck: ${preType}, Tests: ${preTest}`);
   
   if (result.deletedFunctions.length > 0) {
-    const postType = result.postDeleteValidation.typeCheckPassed ? '✅ PASS' : '❌ FAIL';
-    const postTest = result.postDeleteValidation.testsPassed ? '✅ PASS' : '❌ FAIL';
+    const postPerformed = (result.postDeleteValidation as any).performed === false;
+    const postType = fmt(result.postDeleteValidation.typeCheckPassed, postPerformed);
+    const postTest = fmt(result.postDeleteValidation.testsPassed, postPerformed);
     console.log(`Post-deletion: TypeCheck: ${postType}, Tests: ${postTest}`);
   }
 }

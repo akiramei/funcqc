@@ -37,6 +37,7 @@ export interface ValidationResult {
   errors: string[];
   warnings: string[];
   timestamp: string;
+  performed?: boolean; // 実際に検証を実施したか（ユーザー責務=未実施の場合は false）
 }
 
 /**
@@ -82,7 +83,7 @@ export class SafeDeletionSystem {
       errors: [],
       warnings: [],
       preDeleteValidation: await this.runValidation('pre-delete', config),
-      postDeleteValidation: { typeCheckPassed: true, testsPassed: true, errors: [], warnings: [], timestamp: '' }
+      postDeleteValidation: { typeCheckPassed: true, testsPassed: true, errors: [], warnings: [], timestamp: '', performed: false }
     };
 
     console.log('🛡️  Starting safe deletion analysis...');
@@ -286,10 +287,11 @@ export class SafeDeletionSystem {
       testsPassed: true,
       errors: [],
       warnings: [],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      performed: false
     };
 
-    console.log(`   ℹ️  ${phase} validation: User responsibility (run: npm run typecheck; npm test)`);
+    console.log(`   ℹ️  ${phase} validation: N/A (user responsibility; run: npm run typecheck; npm test)`);
 
     return result;
   }
