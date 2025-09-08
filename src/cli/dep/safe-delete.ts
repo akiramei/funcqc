@@ -166,10 +166,9 @@ async function performAnalysis(
   
   const safeDeletionSystem = new SafeDeletionSystem(env?.commandLogger);
   
-  // Force dry-run for analysis phase
+  // Use the original dry-run setting from options
   const analysisOptions = { 
-    ...safeDeletionOptions, 
-    dryRun: true,
+    ...safeDeletionOptions,
     ...(env?.storage && { storage: env.storage }),
     ...(snapshotId && { snapshotId })
   };

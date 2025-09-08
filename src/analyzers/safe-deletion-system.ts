@@ -1,6 +1,7 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyAnalysisEngine, DependencyAnalysisOptions } from './dependency-analysis-engine';
 import { SafeDeletionCandidateGenerator, SafeDeletionCandidate } from './safe-deletion-candidate-generator';
+import { SafeFunctionDeleter } from '../tools/function-deleter';
 import { Logger } from '../utils/cli-utils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -173,9 +174,10 @@ export class SafeDeletionSystem {
           result.deletedFunctions.push(candidate);
         }
 
-        // Validate after each batch (user responsibility)
-        console.log(`   ℹ️  Batch ${i + 1} validation is user responsibility`);
-        console.log('   💡 Please run type check and tests to verify batch changes');
+        // Provide detailed validation guidance after each batch
+        console.log(`   ℹ️  Batch ${i + 1} completed. Validation recommended:`);
+        console.log('   💡 Run: npm run typecheck && npm test');
+        console.log(`   📊 Progress: ${result.deletedFunctions.length}/${result.candidateFunctions.length} functions processed`);
 
         console.log(`   ✅ Batch ${i + 1} completed successfully`);
 
@@ -198,34 +200,24 @@ export class SafeDeletionSystem {
    */
   private async deleteFunction(candidate: DeletionCandidate): Promise<void> {
     const { functionInfo } = candidate;
-    const filePath = functionInfo.filePath;
-
-    // Read the file
-    const fileContent = await fs.readFile(filePath, 'utf8');
     
-    // Preserve line endings
-    const lineEnding = fileContent.includes('\r\n') ? '\r\n' : '\n';
-    const lines = fileContent.split(/\r?\n/);
-
-    // Calculate zero-based line indices
-    const startIndex = functionInfo.startLine - 1;
-    const endIndex = functionInfo.endLine - 1;
+    // Use AST-based deletion for safer and more accurate removal
+    const deleter = new SafeFunctionDeleter({ verbose: false });
     
-    // Verify function still exists at expected location
-    if (startIndex >= lines.length || endIndex >= lines.length) {
-      throw new Error(`Function location out of bounds in ${filePath}`);
+    try {
+      const result = await deleter.deleteFunctions([functionInfo], { 
+        dryRun: false,
+        verbose: false 
+      });
+      
+      if (!result.success || result.errors.length > 0) {
+        throw new Error(`AST-based deletion failed: ${result.errors.join(', ')}`);
+      }
+      
+      console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
+    } finally {
+      deleter.dispose();
     }
-
-    // Remove function lines
-    const newLines = [
-      ...lines.slice(0, startIndex),
-      ...lines.slice(endIndex + 1)
-    ];
-
-    // Write back to file
-    await fs.writeFile(filePath, newLines.join(lineEnding));
-
-    console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
   }
 
   /**
@@ -320,10 +312,10 @@ export class SafeDeletionSystem {
    */
   private getDefaultOptions(options: Partial<SafeDeletionOptions>): SafeDeletionOptions {
     return {
-      confidenceThreshold: 0.95,
+      confidenceThreshold: 0.99,  // Increased from 0.95 for better safety
       createBackup: true,
       dryRun: false,
-      maxFunctionsPerBatch: 10,
+      maxFunctionsPerBatch: 5,    // Reduced from 10 to prevent timeouts
       includeExports: false,
       excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       ...options
@@ -331,13 +323,15 @@ export class SafeDeletionSystem {
   }
 
   /**
-   * Restore from backup
+   * Restore from backup with validation
    */
   async restoreFromBackup(backupPath: string): Promise<void> {
     const indexPath = path.join(backupPath, 'index.json');
     const backupIndex = JSON.parse(await fs.readFile(indexPath, 'utf8'));
 
     console.log(`🔄 Restoring ${backupIndex.totalFunctions} functions from backup...`);
+
+    const restoredFiles = new Set<string>();
 
     for (const func of backupIndex.functions) {
       const backupFileName = `${func.name}.${func.id}.backup.txt`;
@@ -350,9 +344,15 @@ export class SafeDeletionSystem {
 
       // Restore function to original file
       await this.restoreFunction(func, sourceLines);
+      restoredFiles.add(func.filePath);
     }
 
     console.log('✅ Backup restoration completed');
+    console.log('ℹ️  Recommendation: Run type check and tests to verify restoration');
+    
+    if (restoredFiles.size > 0) {
+      console.log(`📁 Files modified: ${Array.from(restoredFiles).join(', ')}`);
+    }
   }
 
   /**
