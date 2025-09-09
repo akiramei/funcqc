@@ -25,13 +25,21 @@ export class ConfidenceCalculator {
     'external_detected': 0.7,
     'callback_registration': 0.8
   };
+  private logger: { debug: (message: string) => void } | undefined;
+
+  constructor(logger?: { debug: (message: string) => void }) {
+    this.logger = logger;
+  }
 
 
   /**
    * Calculate confidence scores for all edges with enhanced analysis
    */
   async calculateConfidenceScores(edges: IdealCallEdge[], functions?: FunctionInfo[]): Promise<IdealCallEdge[]> {
-    console.log('📊 Calculating enhanced confidence scores...');
+    // Use debug level instead of console.log to reduce noise
+    if (this.logger) {
+      this.logger.debug('📊 Calculating enhanced confidence scores...');
+    }
     
     // Build usage context if functions provided
     const usageContext = functions ? this.buildUsageContext(functions, edges) : null;
@@ -41,7 +49,9 @@ export class ConfidenceCalculator {
       confidenceScore: this.calculateEnhancedEdgeConfidence(edge, usageContext)
     }));
     
-    console.log(`✅ Calculated enhanced confidence for ${scoredEdges.length} edges`);
+    if (this.logger) {
+      this.logger.debug(`✅ Calculated enhanced confidence for ${scoredEdges.length} edges`);
+    }
     return scoredEdges;
   }
 
@@ -152,6 +162,14 @@ export class ConfidenceCalculator {
     const functionAnalysis = new Map<string, UsageAnalysis>();
     const duplicateGroups = this.detectDuplicateImplementations(functions);
     
+    // Build id -> duplicateGroup map for O(1) lookups instead of O(n^2) some/find
+    const idToDuplicateGroup = new Map<string, string[]>();
+    for (const group of duplicateGroups) {
+      for (const id of group) {
+        idToDuplicateGroup.set(id, group);
+      }
+    }
+    
     // Build call count map
     const incomingCallCounts = new Map<string, number>();
     for (const edge of edges) {
@@ -161,8 +179,10 @@ export class ConfidenceCalculator {
       }
     }
     
-    // Analyze each function
+    // Analyze each function with O(1) lookups
     for (const func of functions) {
+      const duplicateGroup = idToDuplicateGroup.get(func.id) || [];
+      
       const analysis: UsageAnalysis = {
         functionId: func.id,
         incomingCallCount: incomingCallCounts.get(func.id) || 0,
@@ -170,8 +190,8 @@ export class ConfidenceCalculator {
         isExported: this.isExportedFunction(func),
         isTestFunction: this.isTestFunction(func),
         isUtilityFunction: this.isUtilityFunction(func),
-        isDuplicateImplementation: duplicateGroups.some(group => group.includes(func.id)),
-        duplicateGroup: duplicateGroups.find(group => group.includes(func.id)) || []
+        isDuplicateImplementation: duplicateGroup.length > 1,
+        duplicateGroup
       };
       
       functionAnalysis.set(func.id, analysis);
@@ -227,7 +247,12 @@ export class ConfidenceCalculator {
    * Check if function is exported
    */
   private isExportedFunction(func: FunctionInfo): boolean {
-    // Simple heuristic - could be enhanced with actual export analysis
+    // Use existing isExported property as primary source
+    if (func.isExported !== undefined) {
+      return func.isExported;
+    }
+    
+    // Fallback heuristics only if isExported is not available
     return func.name.startsWith('export') || 
            func.filePath.includes('index.') ||
            Boolean(func.name.match(/^[A-Z]/)); // PascalCase often indicates exported functions

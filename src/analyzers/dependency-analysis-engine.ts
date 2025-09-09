@@ -8,7 +8,7 @@ import { DependencyUtils } from '../utils/dependency-utils';
  * Common configuration for dependency analysis operations
  */
 export interface DependencyAnalysisOptions {
-  confidenceThreshold: number;     // Minimum confidence score for analysis (default: 0.95)
+  confidenceThreshold: number;     // Minimum confidence score for analysis (default: 0.90)
   maxItemsPerBatch: number;        // Maximum items to process in one batch (default: 100)
   includeExports: boolean;         // Include exported functions in deletion analysis (default: false)
   excludePatterns: string[];       // File patterns to exclude from analysis

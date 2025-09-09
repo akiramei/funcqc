@@ -98,7 +98,7 @@ export class IdealCallGraphAnalyzer {
       ...(this.snapshotId && { snapshotId: this.snapshotId }),
       ...(this.storage && { storage: this.storage })
     });
-    this.confidenceCalculator = new ConfidenceCalculator();
+    this.confidenceCalculator = new ConfidenceCalculator(this.logger);
     this.runtimeIntegrator = new RuntimeTraceIntegrator();
   }
 

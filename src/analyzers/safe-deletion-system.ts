@@ -7,10 +7,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export interface SafeDeletionOptions {
-  confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.95)
+  confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.90)
   createBackup: boolean;          // Create backup before deletion (default: true)
   dryRun: boolean;               // Only show what would be deleted (default: false)
-  maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 10)
+  maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 5)
   includeExports: boolean;        // Include exported functions in deletion analysis (default: false)
   excludePatterns: string[];      // File patterns to exclude from deletion
   verbose?: boolean;              // Verbose logging (inherit from CLI --verbose)

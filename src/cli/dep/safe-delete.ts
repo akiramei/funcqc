@@ -486,7 +486,7 @@ function getReasonIcon(reason: string): string {
  * Get color based on confidence score and impact
  */
 function getConfidenceColor(confidenceScore: number, estimatedImpact: string) {
-  if (confidenceScore >= 0.95 && estimatedImpact === 'low') {
+  if (confidenceScore >= 0.90 && estimatedImpact === 'low') {
     return chalk.green;
   } else if (confidenceScore < 0.85 || estimatedImpact === 'high') {
     return chalk.red;
@@ -552,8 +552,8 @@ function outputNoDeletionsInfo(result: import('../../analyzers/safe-deletion-sys
   
   const confidenceDistribution = result.candidateFunctions.reduce((acc, candidate) => {
     const confidence = candidate.confidenceScore;
-    if (confidence >= 0.95) acc.high++;
-    else if (confidence >= 0.85) acc.medium++;
+    if (confidence >= 0.90) acc.high++;
+    else if (confidence >= 0.70) acc.medium++;
     else acc.low++;
     return acc;
   }, { high: 0, medium: 0, low: 0 });
