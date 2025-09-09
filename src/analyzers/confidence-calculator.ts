@@ -123,25 +123,32 @@ export class ConfidenceCalculator {
       if (calleeAnalysis.incomingCallCount === 0) {
         confidence = Math.min(1.0, confidence + 0.15); // Higher confidence for deletion
       } else {
-        // Has callers but is duplicate - needs manual review
-        confidence = Math.max(0.6, confidence - 0.1);
+        // Has callers but is duplicate - needs manual review (pure penalty)
+        confidence = Math.max(0.0, confidence - 0.1);
       }
     }
     
-    // Zero usage boost for deletion confidence
-    if (calleeAnalysis.incomingCallCount === 0 && calleeAnalysis.exportUsageCount === 0) {
+    // Zero usage boost for deletion confidence (only when export usage is known)
+    if (
+      calleeAnalysis.incomingCallCount === 0 &&
+      calleeAnalysis.exportUsageCount !== undefined &&
+      calleeAnalysis.exportUsageCount === 0
+    ) {
       confidence = Math.min(1.0, confidence + 0.1);
     }
     
-    // Export usage penalty (function is exported and might be used externally)
-    if (calleeAnalysis.isExported && calleeAnalysis.exportUsageCount === 0) {
-      // Exported but no detected usage - conservative approach
-      confidence = Math.max(0.7, confidence - 0.05);
+    // Export usage penalty (only when we know export usage)
+    if (
+      calleeAnalysis.isExported &&
+      calleeAnalysis.exportUsageCount !== undefined &&
+      calleeAnalysis.exportUsageCount === 0
+    ) {
+      confidence = Math.max(0.0, confidence - 0.05);
     }
     
     // Test function penalty (test functions should not be deleted casually)
     if (calleeAnalysis.isTestFunction) {
-      confidence = Math.max(0.5, confidence - 0.2);
+      confidence = Math.max(0.0, confidence - 0.2);
     }
     
     // Utility function pattern detection
@@ -186,7 +193,7 @@ export class ConfidenceCalculator {
       const analysis: UsageAnalysis = {
         functionId: func.id,
         incomingCallCount: incomingCallCounts.get(func.id) || 0,
-        exportUsageCount: 0, // TODO: Could be enhanced with export analysis
+        // exportUsageCount: undefined, // unknown by default; omit to indicate unknown
         isExported: this.isExportedFunction(func),
         isTestFunction: this.isTestFunction(func),
         isUtilityFunction: this.isUtilityFunction(func),
@@ -395,7 +402,7 @@ interface UsageContext {
 interface UsageAnalysis {
   functionId: string;
   incomingCallCount: number;
-  exportUsageCount: number;
+  exportUsageCount?: number; // undefined = unknown
   isExported: boolean;
   isTestFunction: boolean;
   isUtilityFunction: boolean;
