@@ -262,15 +262,7 @@ export class ConfidenceCalculator {
    * Check if function is exported
    */
   private isExportedFunction(func: FunctionInfo): boolean {
-    // Use existing isExported property as primary source
-    if (func.isExported !== undefined) {
-      return func.isExported;
-    }
-    
-    // Fallback heuristics only if isExported is not available
-    return func.name.startsWith('export') || 
-           func.filePath.includes('index.') ||
-           Boolean(func.name.match(/^[A-Z]/)); // PascalCase often indicates exported functions
+    return func.isExported;
   }
 
   /**
