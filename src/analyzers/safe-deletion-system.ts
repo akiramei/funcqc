@@ -168,9 +168,11 @@ export class SafeDeletionSystem {
       console.log(`   🔄 Processing batch ${i + 1}/${batches.length} (${batch.length} functions)...`);
 
       try {
-        // Delete functions in this batch
+        // Delete functions in this batch with a single deleter (performance improvement)
+        await this.deleteBatch(batch);
+        
+        // Add all batch functions to deleted list
         for (const candidate of batch) {
-          await this.deleteFunction(candidate);
           result.deletedFunctions.push(candidate);
         }
 
@@ -196,29 +198,42 @@ export class SafeDeletionSystem {
   }
 
   /**
-   * Delete a single function from source code
+   * Delete a batch of functions efficiently with a single deleter
    */
-  private async deleteFunction(candidate: DeletionCandidate): Promise<void> {
-    const { functionInfo } = candidate;
-    
-    // Use AST-based deletion for safer and more accurate removal
+  private async deleteBatch(batch: DeletionCandidate[]): Promise<void> {
     const deleter = new SafeFunctionDeleter({ verbose: false });
     
     try {
-      const result = await deleter.deleteFunctions([functionInfo], { 
+      const functionInfos = batch.map(c => c.functionInfo);
+      const result = await deleter.deleteFunctions(functionInfos, { 
         dryRun: false,
         verbose: false 
       });
       
-      if (!result.success || result.errors.length > 0) {
-        throw new Error(`AST-based deletion failed: ${result.errors.join(', ')}`);
+      // Enhanced validation: check actual deletion occurred
+      const deleted = result.functionsDeleted > 0;
+      const expectedFiles = new Set(functionInfos.map(f => f.filePath));
+      const modifiedFilesMatch = expectedFiles.size === 0 || 
+        Array.from(expectedFiles).some(file => result.filesModified.includes(file));
+      
+      if (!result.success || result.errors.length > 0 || !deleted || !modifiedFilesMatch) {
+        const errDetail = result.errors.length ? `: ${result.errors.join(', ')}` : '';
+        const deletionDetail = !deleted ? ' (0 functions deleted)' : '';
+        const fileDetail = !modifiedFilesMatch ? ' (expected files not modified)' : '';
+        throw new Error(`AST-based batch deletion failed${errDetail}${deletionDetail}${fileDetail}`);
       }
       
-      console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
+      // Log each successfully deleted function
+      for (const candidate of batch) {
+        const { functionInfo } = candidate;
+        console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
+      }
+      
     } finally {
       deleter.dispose();
     }
   }
+
 
   /**
    * Create backup of functions to be deleted

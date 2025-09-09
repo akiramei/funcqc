@@ -229,10 +229,18 @@ export class ConfidenceCalculator {
    */
   private createFunctionSignature(func: FunctionInfo): string {
     // Normalize function name (remove file-specific prefixes/suffixes)
-    const normalizedName = func.name
-      .replace(/^_+/, '') // Remove leading underscores
-      .replace(/\d+$/, '') // Remove trailing numbers
-      .toLowerCase();
+    // Use safer string operations instead of regex for ReDoS prevention
+    let normalizedName = func.name.toLowerCase();
+    
+    // Remove leading underscores safely
+    while (normalizedName.startsWith('_')) {
+      normalizedName = normalizedName.substring(1);
+    }
+    
+    // Remove trailing numbers safely
+    while (normalizedName.length > 0 && /\d/.test(normalizedName[normalizedName.length - 1])) {
+      normalizedName = normalizedName.substring(0, normalizedName.length - 1);
+    }
     
     // Include parameter count as signature component
     const parameterCount = (func.parameters || []).length;
