@@ -312,10 +312,10 @@ export class SafeDeletionSystem {
    */
   private getDefaultOptions(options: Partial<SafeDeletionOptions>): SafeDeletionOptions {
     return {
-      confidenceThreshold: 0.99,  // Increased from 0.95 for better safety
+      confidenceThreshold: 0.90,  // Lowered from 0.99 to improve detection (with enhanced confidence calculation)
       createBackup: true,
       dryRun: false,
-      maxFunctionsPerBatch: 5,    // Reduced from 10 to prevent timeouts
+      maxFunctionsPerBatch: 5,    // Kept at 5 to prevent timeouts
       includeExports: false,
       excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       ...options

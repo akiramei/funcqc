@@ -134,8 +134,8 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
   const dryRun = options.dryRun || !shouldExecute; // Default to dry-run unless --execute is specified
   
   const safeDeletionOptions: Partial<SafeDeletionOptions> = {
-    confidenceThreshold: parseFloat(options.confidenceThreshold || '0.95'),
-    maxFunctionsPerBatch: parseInt(options.maxBatch || '10'),
+    confidenceThreshold: parseFloat(options.confidenceThreshold || '0.90'),
+    maxFunctionsPerBatch: parseInt(options.maxBatch || '5'),
     createBackup: !options.noBackup,
     dryRun,
     includeExports: !!options.includeExports,

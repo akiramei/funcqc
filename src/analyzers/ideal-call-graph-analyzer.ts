@@ -139,9 +139,9 @@ export class IdealCallGraphAnalyzer {
     const rawEdges = await this.analysisEngine.performStagedAnalysis(functions, this.snapshotId);
     this.logger.debug(`Generated ${rawEdges.length} raw edges`);
 
-    // Phase 3: Confidence Calculation
-    this.logger.debug('Phase 3: Calculating confidence scores...');
-    const confidenceEdges = await this.confidenceCalculator.calculateConfidenceScores(rawEdges);
+    // Phase 3: Enhanced Confidence Calculation with function context
+    this.logger.debug('Phase 3: Calculating enhanced confidence scores...');
+    const confidenceEdges = await this.confidenceCalculator.calculateConfidenceScores(rawEdges, existingFunctions);
     
     // Phase 4: Runtime Trace Integration (if available)
     this.logger.debug('Phase 4: Integrating runtime traces...');

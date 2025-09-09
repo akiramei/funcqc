@@ -1,4 +1,5 @@
 import { IdealCallEdge } from './ideal-call-graph-analyzer';
+import { FunctionInfo } from '../types';
 
 /**
  * Confidence Calculator
@@ -25,40 +26,54 @@ export class ConfidenceCalculator {
     'callback_registration': 0.8
   };
 
+
   /**
-   * Calculate confidence scores for all edges
+   * Calculate confidence scores for all edges with enhanced analysis
    */
-  async calculateConfidenceScores(edges: IdealCallEdge[]): Promise<IdealCallEdge[]> {
-    console.log('📊 Calculating confidence scores...');
+  async calculateConfidenceScores(edges: IdealCallEdge[], functions?: FunctionInfo[]): Promise<IdealCallEdge[]> {
+    console.log('📊 Calculating enhanced confidence scores...');
+    
+    // Build usage context if functions provided
+    const usageContext = functions ? this.buildUsageContext(functions, edges) : null;
     
     const scoredEdges = edges.map(edge => ({
       ...edge,
-      confidenceScore: this.calculateEdgeConfidence(edge)
+      confidenceScore: this.calculateEnhancedEdgeConfidence(edge, usageContext)
     }));
     
-    // REMOVED: Sort by confidence (highest first) - O(E log E) optimization
-    // scoredEdges.sort((a, b) => b.confidenceScore - a.confidenceScore);
-    // Use on-demand sorting only when needed
-    
-    console.log(`✅ Calculated confidence for ${scoredEdges.length} edges`);
+    console.log(`✅ Calculated enhanced confidence for ${scoredEdges.length} edges`);
     return scoredEdges;
   }
 
   /**
-   * Calculate confidence score for a single edge
+   * Enhanced confidence calculation with duplicate detection and usage analysis
    */
-  private calculateEdgeConfidence(edge: IdealCallEdge): number {
+  private calculateEnhancedEdgeConfidence(edge: IdealCallEdge, usageContext?: UsageContext | null): number {
     const baseConfidence = ConfidenceCalculator.BASE_CONFIDENCE[edge.resolutionLevel as string];
 
     // Handle unknown resolution levels
     if (baseConfidence === undefined) {
       console.warn(`Unknown resolution level: ${edge.resolutionLevel}`);
-      return 0.5; // Default to medium confidence
+      return 0.5;
     }
 
-    // Apply modifiers based on edge characteristics
     let confidence = baseConfidence;
     
+    // Apply original modifiers
+    confidence = this.applyBaseModifiers(confidence, edge);
+    
+    // Apply enhanced context-aware modifiers
+    if (usageContext) {
+      confidence = this.applyContextModifiers(confidence, edge, usageContext);
+    }
+    
+    return Math.max(0.0, Math.min(1.0, confidence));
+  }
+
+  /**
+   * Apply base confidence modifiers (original logic)
+   */
+  private applyBaseModifiers(confidence: number, edge: IdealCallEdge): number {
     // Runtime confirmation boost
     if (edge.runtimeConfirmed) {
       confidence = Math.min(1.0, confidence + 0.05);
@@ -80,33 +95,196 @@ export class ConfidenceCalculator {
       confidence = Math.min(1.0, confidence + 0.02);
     }
     
-    // Ensure confidence is in valid range
-    return Math.max(0.0, Math.min(1.0, confidence));
+    return confidence;
   }
 
   /**
-   * Get edges by confidence level
+   * Apply context-aware modifiers based on usage analysis
    */
+  private applyContextModifiers(confidence: number, edge: IdealCallEdge, usageContext: UsageContext): number {
+    if (!edge.calleeFunctionId) return confidence;
+    
+    const calleeAnalysis = usageContext.functionAnalysis.get(edge.calleeFunctionId);
+    if (!calleeAnalysis) return confidence;
+    
+    // Duplicate implementation penalty
+    if (calleeAnalysis.isDuplicateImplementation) {
+      // If this is a duplicate, but has no callers, it's likely obsolete
+      if (calleeAnalysis.incomingCallCount === 0) {
+        confidence = Math.min(1.0, confidence + 0.15); // Higher confidence for deletion
+      } else {
+        // Has callers but is duplicate - needs manual review
+        confidence = Math.max(0.6, confidence - 0.1);
+      }
+    }
+    
+    // Zero usage boost for deletion confidence
+    if (calleeAnalysis.incomingCallCount === 0 && calleeAnalysis.exportUsageCount === 0) {
+      confidence = Math.min(1.0, confidence + 0.1);
+    }
+    
+    // Export usage penalty (function is exported and might be used externally)
+    if (calleeAnalysis.isExported && calleeAnalysis.exportUsageCount === 0) {
+      // Exported but no detected usage - conservative approach
+      confidence = Math.max(0.7, confidence - 0.05);
+    }
+    
+    // Test function penalty (test functions should not be deleted casually)
+    if (calleeAnalysis.isTestFunction) {
+      confidence = Math.max(0.5, confidence - 0.2);
+    }
+    
+    // Utility function pattern detection
+    if (calleeAnalysis.isUtilityFunction) {
+      // Utility functions with no callers are good deletion candidates
+      if (calleeAnalysis.incomingCallCount === 0) {
+        confidence = Math.min(1.0, confidence + 0.05);
+      }
+    }
+    
+    return confidence;
+  }
+
+  /**
+   * Build usage context for enhanced analysis
+   */
+  private buildUsageContext(functions: FunctionInfo[], edges: IdealCallEdge[]): UsageContext {
+    const functionAnalysis = new Map<string, UsageAnalysis>();
+    const duplicateGroups = this.detectDuplicateImplementations(functions);
+    
+    // Build call count map
+    const incomingCallCounts = new Map<string, number>();
+    for (const edge of edges) {
+      if (edge.calleeFunctionId) {
+        const count = incomingCallCounts.get(edge.calleeFunctionId) || 0;
+        incomingCallCounts.set(edge.calleeFunctionId, count + 1);
+      }
+    }
+    
+    // Analyze each function
+    for (const func of functions) {
+      const analysis: UsageAnalysis = {
+        functionId: func.id,
+        incomingCallCount: incomingCallCounts.get(func.id) || 0,
+        exportUsageCount: 0, // TODO: Could be enhanced with export analysis
+        isExported: this.isExportedFunction(func),
+        isTestFunction: this.isTestFunction(func),
+        isUtilityFunction: this.isUtilityFunction(func),
+        isDuplicateImplementation: duplicateGroups.some(group => group.includes(func.id)),
+        duplicateGroup: duplicateGroups.find(group => group.includes(func.id)) || []
+      };
+      
+      functionAnalysis.set(func.id, analysis);
+    }
+    
+    return {
+      functionAnalysis,
+      duplicateGroups,
+      totalFunctions: functions.length
+    };
+  }
+
+  /**
+   * Detect duplicate implementations based on function signatures and patterns
+   */
+  private detectDuplicateImplementations(functions: FunctionInfo[]): string[][] {
+    const signatureGroups = new Map<string, string[]>();
+    
+    for (const func of functions) {
+      // Create a signature based on name patterns and file structure
+      const signature = this.createFunctionSignature(func);
+      
+      if (!signatureGroups.has(signature)) {
+        signatureGroups.set(signature, []);
+      }
+      signatureGroups.get(signature)!.push(func.id);
+    }
+    
+    // Return groups with more than one function (duplicates)
+    return Array.from(signatureGroups.values()).filter(group => group.length > 1);
+  }
+
+  /**
+   * Create function signature for duplicate detection
+   */
+  private createFunctionSignature(func: FunctionInfo): string {
+    // Normalize function name (remove file-specific prefixes/suffixes)
+    const normalizedName = func.name
+      .replace(/^_+/, '') // Remove leading underscores
+      .replace(/\d+$/, '') // Remove trailing numbers
+      .toLowerCase();
+    
+    // Include parameter count as signature component
+    const parameterCount = (func.parameters || []).length;
+    // Use function length as complexity approximation
+    const lineCount = (func.endLine || 0) - (func.startLine || 0);
+    const complexityBucket = Math.floor(lineCount / 10) * 10;
+    
+    return `${normalizedName}:${parameterCount}:${complexityBucket}`;
+  }
+
+  /**
+   * Check if function is exported
+   */
+  private isExportedFunction(func: FunctionInfo): boolean {
+    // Simple heuristic - could be enhanced with actual export analysis
+    return func.name.startsWith('export') || 
+           func.filePath.includes('index.') ||
+           Boolean(func.name.match(/^[A-Z]/)); // PascalCase often indicates exported functions
+  }
+
+  /**
+   * Check if function is a test function
+   */
+  private isTestFunction(func: FunctionInfo): boolean {
+    return func.filePath.includes('.test.') ||
+           func.filePath.includes('.spec.') ||
+           func.filePath.includes('/test/') ||
+           func.name.includes('test') ||
+           func.name.includes('Test');
+  }
+
+  /**
+   * Check if function is a utility function
+   */
+  private isUtilityFunction(func: FunctionInfo): boolean {
+    return func.filePath.includes('/utils/') ||
+           func.filePath.includes('/util/') ||
+           func.filePath.includes('/helpers/') ||
+           func.name.startsWith('format') ||
+           func.name.startsWith('parse') ||
+           func.name.startsWith('validate');
+  }
+
+
+  /**
+   * Get edges by confidence level with improved thresholds
+   */
+  /**
+   * Original method preserved for backward compatibility
+   */
+  // Removed - replaced with calculateEnhancedEdgeConfidence
+
   getEdgesByConfidence(edges: IdealCallEdge[]): {
-    high: IdealCallEdge[];     // >= 0.95
-    medium: IdealCallEdge[];   // 0.7 - 0.95
+    high: IdealCallEdge[];     // >= 0.90 (lowered from 0.95)
+    medium: IdealCallEdge[];   // 0.7 - 0.90
     low: IdealCallEdge[];      // < 0.7
   } {
-    const high = edges.filter(e => e.confidenceScore >= 0.95);
-    const medium = edges.filter(e => e.confidenceScore >= 0.7 && e.confidenceScore < 0.95);
+    const high = edges.filter(e => e.confidenceScore >= 0.90);
+    const medium = edges.filter(e => e.confidenceScore >= 0.7 && e.confidenceScore < 0.90);
     const low = edges.filter(e => e.confidenceScore < 0.7);
     
     return { high, medium, low };
   }
 
   /**
-   * Get safe deletion candidates (high confidence only)
+   * Get safe deletion candidates with improved logic
    */
   getSafeDeletionCandidates(edges: IdealCallEdge[]): IdealCallEdge[] {
     return edges.filter(edge => 
-      edge.confidenceScore >= 0.95 &&
+      edge.confidenceScore >= 0.90 && // Lowered from 0.95
       edge.calleeFunctionId &&
-      edge.candidates.length === 1
+      (edge.candidates.length === 1 || edge.confidenceScore >= 0.95) // Allow multiple candidates if very high confidence
     );
   }
 
@@ -116,7 +294,7 @@ export class ConfidenceCalculator {
   getReviewCandidates(edges: IdealCallEdge[]): IdealCallEdge[] {
     return edges.filter(edge => 
       edge.confidenceScore >= 0.7 && 
-      edge.confidenceScore < 0.95
+      edge.confidenceScore < 0.90 // Updated threshold
     );
   }
 
@@ -172,4 +350,22 @@ export class ConfidenceCalculator {
       confidenceDistribution: distribution
     };
   }
+}
+
+// Supporting interfaces for enhanced analysis
+interface UsageContext {
+  functionAnalysis: Map<string, UsageAnalysis>;
+  duplicateGroups: string[][];
+  totalFunctions: number;
+}
+
+interface UsageAnalysis {
+  functionId: string;
+  incomingCallCount: number;
+  exportUsageCount: number;
+  isExported: boolean;
+  isTestFunction: boolean;
+  isUtilityFunction: boolean;
+  isDuplicateImplementation: boolean;
+  duplicateGroup: string[];
 }

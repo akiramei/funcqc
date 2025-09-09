@@ -334,7 +334,7 @@ export class DependencyAnalysisEngine {
    */
   private getDefaultOptions(options: Partial<DependencyAnalysisOptions>): DependencyAnalysisOptions {
     return {
-      confidenceThreshold: 0.95,
+      confidenceThreshold: 0.90,
       maxItemsPerBatch: 100,
       includeExports: false, // Default: protect exports from deletion (safe mode)
       excludePatterns: DependencyUtils.getDefaultExclusionPatterns(),
