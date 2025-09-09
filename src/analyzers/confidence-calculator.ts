@@ -272,8 +272,8 @@ export class ConfidenceCalculator {
     return func.filePath.includes('.test.') ||
            func.filePath.includes('.spec.') ||
            func.filePath.includes('/test/') ||
-           func.name.includes('test') ||
-           func.name.includes('Test');
+           func.name.startsWith('test') ||
+           func.name.startsWith('Test');
   }
 
   /**
