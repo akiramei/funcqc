@@ -25,9 +25,9 @@ export class ConfidenceCalculator {
     'external_detected': 0.7,
     'callback_registration': 0.8
   };
-  private logger: { debug: (message: string) => void } | undefined;
+  private logger: { debug: (message: string) => void; warn?: (message: string) => void } | undefined;
 
-  constructor(logger?: { debug: (message: string) => void }) {
+  constructor(logger?: { debug: (message: string) => void; warn?: (message: string) => void }) {
     this.logger = logger;
   }
 
@@ -63,7 +63,7 @@ export class ConfidenceCalculator {
 
     // Handle unknown resolution levels
     if (baseConfidence === undefined) {
-      console.warn(`Unknown resolution level: ${edge.resolutionLevel}`);
+      this.logger?.warn?.(`Unknown resolution level: ${edge.resolutionLevel}`);
       return 0.5;
     }
 
@@ -116,11 +116,14 @@ export class ConfidenceCalculator {
     
     const calleeAnalysis = usageContext.functionAnalysis.get(edge.calleeFunctionId);
     if (!calleeAnalysis) return confidence;
-    
+
+    // このエッジ自身を除いた着信呼び出し数
+    const otherIncoming = Math.max(0, calleeAnalysis.incomingCallCount - 1);
+
     // Duplicate implementation penalty
     if (calleeAnalysis.isDuplicateImplementation) {
       // If this is a duplicate, but has no callers, it's likely obsolete
-      if (calleeAnalysis.incomingCallCount === 0) {
+      if (otherIncoming === 0) {
         confidence = Math.min(1.0, confidence + 0.15); // Higher confidence for deletion
       } else {
         // Has callers but is duplicate - needs manual review (pure penalty)
@@ -130,7 +133,7 @@ export class ConfidenceCalculator {
     
     // Zero usage boost for deletion confidence (only when export usage is known)
     if (
-      calleeAnalysis.incomingCallCount === 0 &&
+      otherIncoming === 0 &&
       calleeAnalysis.exportUsageCount !== undefined &&
       calleeAnalysis.exportUsageCount === 0
     ) {
@@ -154,11 +157,11 @@ export class ConfidenceCalculator {
     // Utility function pattern detection
     if (calleeAnalysis.isUtilityFunction) {
       // Utility functions with no callers are good deletion candidates
-      if (calleeAnalysis.incomingCallCount === 0) {
+      if (otherIncoming === 0) {
         confidence = Math.min(1.0, confidence + 0.05);
       }
     }
-    
+
     return confidence;
   }
 
