@@ -186,6 +186,9 @@ export class ConfidenceCalculator {
       }
     }
     
+    // Build export usage count for exported functions
+    const exportUsageCounts = this.calculateExportUsageCounts(functions, edges);
+    
     // Analyze each function with O(1) lookups
     for (const func of functions) {
       const duplicateGroup = idToDuplicateGroup.get(func.id) || [];
@@ -193,13 +196,18 @@ export class ConfidenceCalculator {
       const analysis: UsageAnalysis = {
         functionId: func.id,
         incomingCallCount: incomingCallCounts.get(func.id) || 0,
-        // exportUsageCount: undefined, // unknown by default; omit to indicate unknown
         isExported: this.isExportedFunction(func),
         isTestFunction: this.isTestFunction(func),
         isUtilityFunction: this.isUtilityFunction(func),
         isDuplicateImplementation: duplicateGroup.length > 1,
         duplicateGroup
       };
+      
+      // Set exportUsageCount only if we have determined a value
+      const exportUsageCount = exportUsageCounts.get(func.id);
+      if (exportUsageCount !== undefined) {
+        analysis.exportUsageCount = exportUsageCount;
+      }
       
       functionAnalysis.set(func.id, analysis);
     }
@@ -209,6 +217,95 @@ export class ConfidenceCalculator {
       duplicateGroups,
       totalFunctions: functions.length
     };
+  }
+
+  /**
+   * Calculate export usage counts for exported functions
+   * Returns count only for functions where we can determine usage
+   */
+  private calculateExportUsageCounts(functions: FunctionInfo[], edges: IdealCallEdge[]): Map<string, number> {
+    const exportUsageCounts = new Map<string, number>();
+    
+    // Build set of exported function IDs
+    const exportedFunctionIds = new Set<string>();
+    for (const func of functions) {
+      if (this.isExportedFunction(func)) {
+        exportedFunctionIds.add(func.id);
+      }
+    }
+    
+    // Count calls to exported functions from external/cross-module sources
+    for (const edge of edges) {
+      if (!edge.calleeFunctionId || !exportedFunctionIds.has(edge.calleeFunctionId)) {
+        continue;
+      }
+      
+      // Basic heuristic: count calls where we have some confidence
+      // This is a simplified approach - can be enhanced with more sophisticated detection
+      const isExternalCall = this.isLikelyExternalCall(edge, functions);
+      
+      if (isExternalCall) {
+        const currentCount = exportUsageCounts.get(edge.calleeFunctionId) || 0;
+        exportUsageCounts.set(edge.calleeFunctionId, currentCount + 1);
+      }
+    }
+    
+    // For exported functions with internal calls but no detected external usage,
+    // set count to 0 (vs undefined = unknown)
+    for (const functionId of exportedFunctionIds) {
+      if (!exportUsageCounts.has(functionId)) {
+        // Check if this function has any calls at all
+        const hasAnyCalls = edges.some(edge => edge.calleeFunctionId === functionId);
+        if (hasAnyCalls) {
+          // Has internal calls but no detected external calls
+          exportUsageCounts.set(functionId, 0);
+        }
+        // If no calls at all, leave as undefined (unknown external usage)
+      }
+    }
+    
+    return exportUsageCounts;
+  }
+
+  /**
+   * Heuristic to determine if a call is likely from external/cross-module source
+   */
+  private isLikelyExternalCall(edge: IdealCallEdge, functions: FunctionInfo[]): boolean {
+    // If we don't have caller info, assume it might be external
+    if (!edge.callerFunctionId) {
+      return true;
+    }
+    
+    // Find caller and callee functions
+    const caller = functions.find(f => f.id === edge.callerFunctionId);
+    const callee = functions.find(f => f.id === edge.calleeFunctionId);
+    
+    if (!caller || !callee) {
+      return true; // Unknown caller/callee, assume external
+    }
+    
+    // Cross-file calls to exported functions are likely external usage
+    if (caller.filePath !== callee.filePath && callee.isExported) {
+      return true;
+    }
+    
+    // Calls from entry points or CLI files to exported functions
+    if (this.isEntryPointFile(caller.filePath) && callee.isExported) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if file is likely an entry point
+   */
+  private isEntryPointFile(filePath: string): boolean {
+    return filePath.includes('index.') ||
+           filePath.includes('main.') ||
+           filePath.includes('cli.') ||
+           filePath.includes('/bin/') ||
+           filePath.includes('/scripts/');
   }
 
   /**
