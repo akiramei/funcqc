@@ -699,8 +699,8 @@ Layer Entry Points:
 
 depCommand.command('delete')
   .description('🛡️  Safely delete dead code (combines detection + deletion)')
-  .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.95')
-  .option('--max-batch <num>', 'maximum functions to delete in one batch', '10')
+  .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.90')
+  .option('--max-batch <num>', 'maximum functions to delete in one batch', '5')
   .option('--no-tests', 'skip test execution before deletion')
   .option('--no-type-check', 'skip TypeScript type checking')
   .option('--no-backup', 'skip backup creation (faster but less safe)')

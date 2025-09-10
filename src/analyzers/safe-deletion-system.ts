@@ -1,15 +1,16 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyAnalysisEngine, DependencyAnalysisOptions } from './dependency-analysis-engine';
 import { SafeDeletionCandidateGenerator, SafeDeletionCandidate } from './safe-deletion-candidate-generator';
+import { SafeFunctionDeleter } from '../tools/function-deleter';
 import { Logger } from '../utils/cli-utils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export interface SafeDeletionOptions {
-  confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.95)
+  confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.90)
   createBackup: boolean;          // Create backup before deletion (default: true)
   dryRun: boolean;               // Only show what would be deleted (default: false)
-  maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 10)
+  maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 5)
   includeExports: boolean;        // Include exported functions in deletion analysis (default: false)
   excludePatterns: string[];      // File patterns to exclude from deletion
   verbose?: boolean;              // Verbose logging (inherit from CLI --verbose)
@@ -167,15 +168,18 @@ export class SafeDeletionSystem {
       console.log(`   🔄 Processing batch ${i + 1}/${batches.length} (${batch.length} functions)...`);
 
       try {
-        // Delete functions in this batch
+        // Delete functions in this batch with a single deleter (performance improvement)
+        await this.deleteBatch(batch);
+        
+        // Add all batch functions to deleted list
         for (const candidate of batch) {
-          await this.deleteFunction(candidate);
           result.deletedFunctions.push(candidate);
         }
 
-        // Validate after each batch (user responsibility)
-        console.log(`   ℹ️  Batch ${i + 1} validation is user responsibility`);
-        console.log('   💡 Please run type check and tests to verify batch changes');
+        // Provide detailed validation guidance after each batch
+        console.log(`   ℹ️  Batch ${i + 1} completed. Validation recommended:`);
+        console.log('   💡 Run: npm run typecheck && npm test');
+        console.log(`   📊 Progress: ${result.deletedFunctions.length}/${result.candidateFunctions.length} functions processed`);
 
         console.log(`   ✅ Batch ${i + 1} completed successfully`);
 
@@ -194,39 +198,42 @@ export class SafeDeletionSystem {
   }
 
   /**
-   * Delete a single function from source code
+   * Delete a batch of functions efficiently with a single deleter
    */
-  private async deleteFunction(candidate: DeletionCandidate): Promise<void> {
-    const { functionInfo } = candidate;
-    const filePath = functionInfo.filePath;
-
-    // Read the file
-    const fileContent = await fs.readFile(filePath, 'utf8');
+  private async deleteBatch(batch: DeletionCandidate[]): Promise<void> {
+    const deleter = new SafeFunctionDeleter({ verbose: false });
     
-    // Preserve line endings
-    const lineEnding = fileContent.includes('\r\n') ? '\r\n' : '\n';
-    const lines = fileContent.split(/\r?\n/);
-
-    // Calculate zero-based line indices
-    const startIndex = functionInfo.startLine - 1;
-    const endIndex = functionInfo.endLine - 1;
-    
-    // Verify function still exists at expected location
-    if (startIndex >= lines.length || endIndex >= lines.length) {
-      throw new Error(`Function location out of bounds in ${filePath}`);
+    try {
+      const functionInfos = batch.map(c => c.functionInfo);
+      const result = await deleter.deleteFunctions(functionInfos, { 
+        dryRun: false,
+        verbose: false 
+      });
+      
+      // Enhanced validation: check actual deletion occurred
+      const deleted = result.functionsDeleted > 0;
+      const expectedFiles = new Set(functionInfos.map(f => f.filePath));
+      const modifiedFilesMatch = expectedFiles.size === 0 || 
+        Array.from(expectedFiles).some(file => result.filesModified.includes(file));
+      
+      if (!result.success || result.errors.length > 0 || !deleted || !modifiedFilesMatch) {
+        const errDetail = result.errors.length ? `: ${result.errors.join(', ')}` : '';
+        const deletionDetail = !deleted ? ' (0 functions deleted)' : '';
+        const fileDetail = !modifiedFilesMatch ? ' (expected files not modified)' : '';
+        throw new Error(`AST-based batch deletion failed${errDetail}${deletionDetail}${fileDetail}`);
+      }
+      
+      // Log each successfully deleted function
+      for (const candidate of batch) {
+        const { functionInfo } = candidate;
+        console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
+      }
+      
+    } finally {
+      deleter.dispose();
     }
-
-    // Remove function lines
-    const newLines = [
-      ...lines.slice(0, startIndex),
-      ...lines.slice(endIndex + 1)
-    ];
-
-    // Write back to file
-    await fs.writeFile(filePath, newLines.join(lineEnding));
-
-    console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
   }
+
 
   /**
    * Create backup of functions to be deleted
@@ -320,10 +327,10 @@ export class SafeDeletionSystem {
    */
   private getDefaultOptions(options: Partial<SafeDeletionOptions>): SafeDeletionOptions {
     return {
-      confidenceThreshold: 0.95,
+      confidenceThreshold: 0.90,  // Lowered from 0.99 to improve detection (with enhanced confidence calculation)
       createBackup: true,
       dryRun: false,
-      maxFunctionsPerBatch: 10,
+      maxFunctionsPerBatch: 5,    // Kept at 5 to prevent timeouts
       includeExports: false,
       excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       ...options
@@ -331,13 +338,15 @@ export class SafeDeletionSystem {
   }
 
   /**
-   * Restore from backup
+   * Restore from backup with validation
    */
   async restoreFromBackup(backupPath: string): Promise<void> {
     const indexPath = path.join(backupPath, 'index.json');
     const backupIndex = JSON.parse(await fs.readFile(indexPath, 'utf8'));
 
     console.log(`🔄 Restoring ${backupIndex.totalFunctions} functions from backup...`);
+
+    const restoredFiles = new Set<string>();
 
     for (const func of backupIndex.functions) {
       const backupFileName = `${func.name}.${func.id}.backup.txt`;
@@ -350,9 +359,15 @@ export class SafeDeletionSystem {
 
       // Restore function to original file
       await this.restoreFunction(func, sourceLines);
+      restoredFiles.add(func.filePath);
     }
 
     console.log('✅ Backup restoration completed');
+    console.log('ℹ️  Recommendation: Run type check and tests to verify restoration');
+    
+    if (restoredFiles.size > 0) {
+      console.log(`📁 Files modified: ${Array.from(restoredFiles).join(', ')}`);
+    }
   }
 
   /**

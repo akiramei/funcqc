@@ -112,8 +112,8 @@ export async function loadExistingAnalysisResults(
         }
       }
       
-      const highConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95).length;
-      const mediumConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95).length;
+      const highConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.90).length;
+      const mediumConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.90).length;
       const lowConfidenceEdges = callEdges.length - highConfidenceEdges - mediumConfidenceEdges;
 
       sharedData.callGraphResults = {
