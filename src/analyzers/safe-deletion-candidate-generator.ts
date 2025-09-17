@@ -199,7 +199,9 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   private async extractSourceLines(func: FunctionInfo): Promise<string[]> {
     try {
       const fs = await import('fs/promises');
-      const fileContent = await fs.readFile(func.filePath, 'utf8');
+      const { toFileSystemPath } = await import('../utils/path-normalizer');
+      const resolved = toFileSystemPath(func.filePath);
+      const fileContent = await fs.readFile(resolved, 'utf8');
       const lines = fileContent.split('\n');
       return lines.slice(func.startLine - 1, func.endLine);
     } catch (error) {

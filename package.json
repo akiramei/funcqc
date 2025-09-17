@@ -51,6 +51,7 @@
     "profile:memory": "node --heap-prof src/cli.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "benchmark:startup": "tsx scripts/startup-benchmark.ts",
+    "validate:dep-delete": "tsx scripts/dep-delete-validate.ts",
     "precommit": "npm run typecheck && npm run lint"
   },
   "dependencies": {

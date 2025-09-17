@@ -1,4 +1,4 @@
-import { cosmiconfigSync } from 'cosmiconfig';
+import { cosmiconfigSync, type PublicExplorerSync } from 'cosmiconfig';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import {
@@ -18,6 +18,23 @@ import {
   ThresholdConfigManager,
   parseQualityThresholdConfig,
 } from '../config/thresholds-simple.js';
+
+const COSMICONFIG_SEARCH_PLACES = [
+  '.funcqcrc',
+  '.funcqcrc.json',
+  '.funcqcrc.yaml',
+  '.funcqcrc.yml',
+  '.funcqcrc.js',
+  'funcqc.config.js',
+  '.funcqc.config.js',
+  'package.json'
+];
+
+function createExplorer(): PublicExplorerSync {
+  return cosmiconfigSync('funcqc', {
+    searchPlaces: COSMICONFIG_SEARCH_PLACES,
+  });
+}
 
 const DEFAULT_CONFIG: FuncqcConfig = {
   // Legacy support - deprecated in favor of scopes
@@ -116,29 +133,25 @@ const DEFAULT_CONFIG: FuncqcConfig = {
 export class ConfigManager {
   private config: FuncqcConfig | undefined;
   private configPath: string | null = null;
-  private explorer = cosmiconfigSync('funcqc', {
-    searchPlaces: [
-      '.funcqcrc',
-      '.funcqcrc.json',
-      '.funcqcrc.yaml',
-      '.funcqcrc.yml',
-      '.funcqcrc.js',
-      'funcqc.config.js',
-      '.funcqc.config.js',
-      'package.json'
-    ]
-  });
+  private explorer: PublicExplorerSync | undefined;
   private thresholdManager: ThresholdConfigManager | undefined;
 
   // Static cache for lightweight config
   private static lightweightCache: { storage: { path: string } } | undefined;
+
+  private getExplorer(): PublicExplorerSync {
+    if (!this.explorer) {
+      this.explorer = createExplorer();
+    }
+    return this.explorer;
+  }
 
   async load(): Promise<FuncqcConfig> {
     if (this.config) {
       return this.config;
     }
 
-    const result = this.explorer.search();
+    const result = this.getExplorer().search();
 
     if (result) {
       this.config = this.validateAndMergeConfig(result.config);
@@ -169,7 +182,7 @@ export class ConfigManager {
     }
 
     try {
-      const result = this.explorer.search();
+      const result = this.getExplorer().search();
       const storagePath = result?.config?.storage?.path || DEFAULT_CONFIG.storage.path!;
 
       ConfigManager.lightweightCache = {
@@ -325,7 +338,7 @@ export class ConfigManager {
    * Resolve a path relative to the config file location
    */
   resolvePath(relativePath: string): string {
-    const result = this.explorer.search();
+    const result = this.getExplorer().search();
 
     if (result?.filepath) {
       const configDir = path.dirname(result.filepath);
@@ -446,7 +459,10 @@ export class ConfigManager {
    */
   clearCache(): void {
     this.config = undefined;
-    this.explorer.clearCaches();
+    if (this.explorer) {
+      this.explorer.clearCaches();
+      this.explorer = undefined;
+    }
     this.thresholdManager = new ThresholdConfigManager();
     ConfigManager.lightweightCache = undefined;
   }

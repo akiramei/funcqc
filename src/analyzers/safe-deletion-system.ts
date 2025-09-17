@@ -12,10 +12,17 @@ export interface SafeDeletionOptions {
   dryRun: boolean;               // Only show what would be deleted (default: false)
   maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 5)
   includeExports: boolean;        // Include exported functions in deletion analysis (default: false)
+  includeStaticMethods?: boolean; // Include static methods in analysis (default: false)
+  excludeTests?: boolean;         // Exclude test functions from analysis (default: false)
   excludePatterns: string[];      // File patterns to exclude from deletion
   verbose?: boolean;              // Verbose logging (inherit from CLI --verbose)
   storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
   snapshotId?: string;           // Snapshot ID for consistent data access
+  /**
+   * Minimum confidence required for a function to be considered as a deletion candidate
+   * Note: This is distinct from `confidenceThreshold`, which filters call graph edges
+   */
+  candidateMinConfidence?: number;
 }
 
 export interface SafeDeletionResult {
@@ -97,6 +104,8 @@ export class SafeDeletionSystem {
       const analysisOptions: Partial<DependencyAnalysisOptions> = {
         confidenceThreshold: config.confidenceThreshold,
         includeExports: config.includeExports,
+        includeStaticMethods: config.includeStaticMethods ?? false,
+        excludeTests: config.excludeTests ?? false,
         excludePatterns: config.excludePatterns,
         // Only enable verbose when explicitly requested via CLI
         verbose: Boolean(config.verbose),
@@ -112,7 +121,13 @@ export class SafeDeletionSystem {
         analysisOptions
       );
 
+      // Initial candidates from analysis
       result.candidateFunctions = analysisResult.analysisResults;
+
+      // Apply function-level confidence filter if provided (independent from edge confidence)
+      if (typeof config.candidateMinConfidence === 'number') {
+        result.candidateFunctions = result.candidateFunctions.filter(c => c.confidenceScore >= (config.candidateMinConfidence as number));
+      }
       result.errors.push(...analysisResult.errors);
       result.warnings.push(...analysisResult.warnings);
 

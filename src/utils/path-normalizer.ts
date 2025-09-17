@@ -79,6 +79,26 @@ export function toUnifiedProjectPath(filePath: string): string {
 }
 
 /**
+ * Convert unified project path ('/src/...') or relative path to actual filesystem path
+ * - '/src/...' -> '<cwd>/src/...'
+ * - absolute path -> unchanged
+ * - relative path -> '<cwd>/<relative>'
+ */
+export function toFileSystemPath(filePath: string): string {
+  if (!filePath) return '';
+  const posix = filePath.replace(/\\/g, '/');
+  if (posix.startsWith('/src/')) {
+    return path.join(process.cwd(), posix.slice(1));
+  }
+  // Absolute path (POSIX or Windows drive letter)
+  if (/^[A-Za-z]:\//.test(posix) || posix.startsWith('/')) {
+    return filePath;
+  }
+  // Relative path
+  return path.join(process.cwd(), filePath);
+}
+
+/**
  * @deprecated Use individual exported functions instead
  * Utility object for backward compatibility with class-based interface
  */
@@ -88,4 +108,5 @@ export const PathNormalizer = {
   filterByPath,
   groupByPath,
   toUnified: toUnifiedProjectPath,
+  toFs: toFileSystemPath,
 };

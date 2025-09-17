@@ -19,6 +19,7 @@ interface DepDeleteCommandOptions {
   force?: boolean;
   dryRun?: boolean;
   includeExports?: boolean;
+  includeStaticMethods?: boolean;
   exclude?: string[];
   format?: 'table' | 'json';
   verbose?: boolean;
@@ -27,6 +28,7 @@ interface DepDeleteCommandOptions {
   minConfidence?: string;
   layerEntryPoints?: string;
   snapshot?: string;
+  highRecall?: boolean;
 }
 
 export class DepDeleteCommand implements Command {
@@ -67,8 +69,10 @@ export class DepDeleteCommand implements Command {
     if (subCommand.includes('--force')) options.force = true;
     if (subCommand.includes('--dry-run')) options.dryRun = true;
     if (subCommand.includes('--include-exports')) options.includeExports = true;
+    if (subCommand.includes('--include-static-methods')) options.includeStaticMethods = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
     if (subCommand.includes('--exclude-tests')) options.excludeTests = true;
+    if (subCommand.includes('--high-recall')) options.highRecall = true;
 
     // String options with values
     const confidenceThresholdIndex = subCommand.indexOf('--confidence-threshold');

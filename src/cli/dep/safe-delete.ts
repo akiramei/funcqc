@@ -19,10 +19,16 @@ interface SafeDeleteOptions extends OptionValues {
   force?: boolean;
   dryRun?: boolean;
   includeExports?: boolean;
+  includeStaticMethods?: boolean;
+  excludeTests?: boolean;
   exclude?: string[];
   format?: 'table' | 'json';
   verbose?: boolean;
   restore?: string;
+  // Candidate-level confidence filter (separate from edge-level --confidence-threshold)
+  minConfidence?: string;
+  // High recall preset
+  highRecall?: boolean;
 }
 
 /**
@@ -139,14 +145,39 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
     createBackup: !options.noBackup,
     dryRun,
     includeExports: !!options.includeExports,
+    includeStaticMethods: Boolean(options.includeStaticMethods),
+    // if --exclude-tests present, respect it; default false keeps tests as entry points
+    excludeTests: Boolean(options.excludeTests),
     excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**'],
     // pass through verbosity
     verbose: Boolean(options.verbose)
   };
+
+  // Optional: candidate-level confidence filter (independent from edge filter)
+  if (options.minConfidence) {
+    const parsed = parseFloat(options.minConfidence);
+    if (!Number.isNaN(parsed)) {
+      safeDeletionOptions.candidateMinConfidence = parsed;
+    }
+  }
   
   const mode = dryRun ? 'preview-only' : 'execute';
   if (options.verbose) {
-    console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}`);
+    const minCand = safeDeletionOptions.candidateMinConfidence;
+    console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}, minCandidateConfidence=${minCand ?? 'n/a'}`);
+  }
+
+  // High recall preset: include exports and static methods; do not exclude tests
+  if (options.highRecall) {
+    safeDeletionOptions.includeExports = true;
+    safeDeletionOptions.includeStaticMethods = true;
+    safeDeletionOptions.excludeTests = false;
+    // Use stricter edge threshold to avoid spurious reachability; keep candidate filter moderate
+    const current = safeDeletionOptions.confidenceThreshold ?? 0.95;
+    safeDeletionOptions.confidenceThreshold = Math.max(0.99, current);
+    if (safeDeletionOptions.candidateMinConfidence == null) {
+      safeDeletionOptions.candidateMinConfidence = 0.9;
+    }
   }
   return safeDeletionOptions;
 }
