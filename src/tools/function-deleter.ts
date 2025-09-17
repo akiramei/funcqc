@@ -134,10 +134,11 @@ export class SafeFunctionDeleter {
     // Save file if not in dry-run mode and functions were deleted
     if (!options.dryRun && deletedCount > 0) {
       if (options.backupFiles) {
-        // Create backup before saving
-        const backupPath = `${filePath}.backup.${Date.now()}`;
-        await sourceFile.copy(backupPath);
-        
+        // Create backup before saving (use real FS path and persist)
+        const backupPath = `${fsPath}.backup.${Date.now()}`;
+        const backupFile = sourceFile.copy(backupPath, { overwrite: true });
+        await backupFile.save();
+
         if (this.verbose) {
           console.log(chalk.blue(`  📄 Backup created: ${backupPath}`));
         }

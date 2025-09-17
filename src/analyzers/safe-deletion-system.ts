@@ -225,24 +225,22 @@ export class SafeDeletionSystem {
         verbose: false 
       });
       
-      // Enhanced validation: check actual deletion occurred
-      const deleted = result.functionsDeleted > 0;
+      // Enhanced validation: require all expected files modified and non-zero deletions
       const expectedFiles = new Set(functionInfos.map(f => f.filePath));
-      const modifiedFilesMatch = expectedFiles.size === 0 || 
-        Array.from(expectedFiles).some(file => result.filesModified.includes(file));
-      
-      if (!result.success || result.errors.length > 0 || !deleted || !modifiedFilesMatch) {
+      const modified = new Set(result.filesModified);
+      const missingFiles = Array.from(expectedFiles).filter(f => !modified.has(f));
+      const deletedSome = result.functionsDeleted > 0;
+      const deletedAll = result.functionsDeleted >= functionInfos.length;
+
+      if (!result.success || result.errors.length > 0 || !deletedSome || missingFiles.length > 0 || !deletedAll) {
         const errDetail = result.errors.length ? `: ${result.errors.join(', ')}` : '';
-        const deletionDetail = !deleted ? ' (0 functions deleted)' : '';
-        const fileDetail = !modifiedFilesMatch ? ' (expected files not modified)' : '';
+        const deletionDetail = !deletedSome ? ` (0/${functionInfos.length} deleted)` : ` (${result.functionsDeleted}/${functionInfos.length} deleted)`;
+        const fileDetail = missingFiles.length ? ` (expected files not modified: ${missingFiles.join(', ')})` : '';
         throw new Error(`AST-based batch deletion failed${errDetail}${deletionDetail}${fileDetail}`);
       }
-      
-      // Log each successfully deleted function
-      for (const candidate of batch) {
-        const { functionInfo } = candidate;
-        console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
-      }
+
+      // NOTE: 個々の関数削除可否は得られないため、詳細ログは控える
+      console.log(`   🗑️  Deleted ${result.functionsDeleted}/${functionInfos.length} functions across ${modified.size} file(s)`);
       
     } finally {
       deleter.dispose();

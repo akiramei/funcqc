@@ -90,12 +90,12 @@ export function toFileSystemPath(filePath: string): string {
   if (posix.startsWith('/src/')) {
     return path.join(process.cwd(), posix.slice(1));
   }
-  // Absolute path (POSIX or Windows drive letter)
-  if (/^[A-Za-z]:\//.test(posix) || posix.startsWith('/')) {
+  // Absolute path (POSIX/Windows/UNC)
+  if (path.isAbsolute(filePath)) {
     return filePath;
   }
-  // Relative path
-  return path.join(process.cwd(), filePath);
+  // Relative path -> absolute
+  return path.resolve(process.cwd(), filePath);
 }
 
 /**

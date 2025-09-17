@@ -69,6 +69,7 @@ export class DepDeleteCommand implements Command {
     if (subCommand.includes('--force')) options.force = true;
     if (subCommand.includes('--dry-run')) options.dryRun = true;
     if (subCommand.includes('--include-exports')) options.includeExports = true;
+    if (subCommand.includes('--exclude-exports')) options.includeExports = false;
     if (subCommand.includes('--include-static-methods')) options.includeStaticMethods = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
     if (subCommand.includes('--exclude-tests')) options.excludeTests = true;

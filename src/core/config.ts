@@ -338,14 +338,13 @@ export class ConfigManager {
    * Resolve a path relative to the config file location
    */
   resolvePath(relativePath: string): string {
-    const result = this.getExplorer().search();
-
-    if (result?.filepath) {
-      const configDir = path.dirname(result.filepath);
-      return path.resolve(configDir, relativePath);
+    const cached = this.configPath;
+    if (cached) {
+      return path.resolve(path.dirname(cached), relativePath);
     }
-
-    return path.resolve(process.cwd(), relativePath);
+    const result = this.getExplorer().search();
+    const base = result?.filepath ? path.dirname(result.filepath) : process.cwd();
+    return path.resolve(base, relativePath);
   }
 
   /**
@@ -459,6 +458,7 @@ export class ConfigManager {
    */
   clearCache(): void {
     this.config = undefined;
+    this.configPath = null;
     if (this.explorer) {
       this.explorer.clearCaches();
       this.explorer = undefined;
