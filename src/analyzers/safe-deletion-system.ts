@@ -7,15 +7,22 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export interface SafeDeletionOptions {
-  confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.95)
+  confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.90)
   createBackup: boolean;          // Create backup before deletion (default: true)
   dryRun: boolean;               // Only show what would be deleted (default: false)
-  maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 10)
+  maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 5)
   includeExports: boolean;        // Include exported functions in deletion analysis (default: false)
+  includeStaticMethods?: boolean; // Include static methods in analysis (default: false)
+  excludeTests?: boolean;         // Exclude test functions from analysis (default: false)
   excludePatterns: string[];      // File patterns to exclude from deletion
   verbose?: boolean;              // Verbose logging (inherit from CLI --verbose)
   storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
   snapshotId?: string;           // Snapshot ID for consistent data access
+  /**
+   * Minimum confidence required for a function to be considered as a deletion candidate
+   * Note: This is distinct from `confidenceThreshold`, which filters call graph edges
+   */
+  candidateMinConfidence?: number;
 }
 
 export interface SafeDeletionResult {
@@ -97,6 +104,8 @@ export class SafeDeletionSystem {
       const analysisOptions: Partial<DependencyAnalysisOptions> = {
         confidenceThreshold: config.confidenceThreshold,
         includeExports: config.includeExports,
+        includeStaticMethods: config.includeStaticMethods ?? false,
+        excludeTests: config.excludeTests ?? false,
         excludePatterns: config.excludePatterns,
         // Only enable verbose when explicitly requested via CLI
         verbose: Boolean(config.verbose),
@@ -112,7 +121,13 @@ export class SafeDeletionSystem {
         analysisOptions
       );
 
+      // Initial candidates from analysis
       result.candidateFunctions = analysisResult.analysisResults;
+
+      // Apply function-level confidence filter if provided (independent from edge confidence)
+      if (typeof config.candidateMinConfidence === 'number') {
+        result.candidateFunctions = result.candidateFunctions.filter(c => c.confidenceScore >= (config.candidateMinConfidence as number));
+      }
       result.errors.push(...analysisResult.errors);
       result.warnings.push(...analysisResult.warnings);
 
@@ -168,9 +183,11 @@ export class SafeDeletionSystem {
       console.log(`   🔄 Processing batch ${i + 1}/${batches.length} (${batch.length} functions)...`);
 
       try {
-        // Delete functions in this batch
+        // Delete functions in this batch with a single deleter (performance improvement)
+        await this.deleteBatch(batch);
+        
+        // Add all batch functions to deleted list
         for (const candidate of batch) {
-          await this.deleteFunction(candidate);
           result.deletedFunctions.push(candidate);
         }
 
@@ -196,29 +213,40 @@ export class SafeDeletionSystem {
   }
 
   /**
-   * Delete a single function from source code
+   * Delete a batch of functions efficiently with a single deleter
    */
-  private async deleteFunction(candidate: DeletionCandidate): Promise<void> {
-    const { functionInfo } = candidate;
-    
-    // Use AST-based deletion for safer and more accurate removal
+  private async deleteBatch(batch: DeletionCandidate[]): Promise<void> {
     const deleter = new SafeFunctionDeleter({ verbose: false });
     
     try {
-      const result = await deleter.deleteFunctions([functionInfo], { 
+      const functionInfos = batch.map(c => c.functionInfo);
+      const result = await deleter.deleteFunctions(functionInfos, { 
         dryRun: false,
         verbose: false 
       });
       
-      if (!result.success || result.errors.length > 0) {
-        throw new Error(`AST-based deletion failed: ${result.errors.join(', ')}`);
+      // Enhanced validation: require all expected files modified and non-zero deletions
+      const expectedFiles = new Set(functionInfos.map(f => f.filePath));
+      const modified = new Set(result.filesModified);
+      const missingFiles = Array.from(expectedFiles).filter(f => !modified.has(f));
+      const deletedSome = result.functionsDeleted > 0;
+      const deletedAll = result.functionsDeleted >= functionInfos.length;
+
+      if (!result.success || result.errors.length > 0 || !deletedSome || missingFiles.length > 0 || !deletedAll) {
+        const errDetail = result.errors.length ? `: ${result.errors.join(', ')}` : '';
+        const deletionDetail = !deletedSome ? ` (0/${functionInfos.length} deleted)` : ` (${result.functionsDeleted}/${functionInfos.length} deleted)`;
+        const fileDetail = missingFiles.length ? ` (expected files not modified: ${missingFiles.join(', ')})` : '';
+        throw new Error(`AST-based batch deletion failed${errDetail}${deletionDetail}${fileDetail}`);
       }
+
+      // NOTE: 個々の関数削除可否は得られないため、詳細ログは控える
+      console.log(`   🗑️  Deleted ${result.functionsDeleted}/${functionInfos.length} functions across ${modified.size} file(s)`);
       
-      console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
     } finally {
       deleter.dispose();
     }
   }
+
 
   /**
    * Create backup of functions to be deleted
@@ -312,10 +340,10 @@ export class SafeDeletionSystem {
    */
   private getDefaultOptions(options: Partial<SafeDeletionOptions>): SafeDeletionOptions {
     return {
-      confidenceThreshold: 0.99,  // Increased from 0.95 for better safety
+      confidenceThreshold: 0.90,  // Lowered from 0.99 to improve detection (with enhanced confidence calculation)
       createBackup: true,
       dryRun: false,
-      maxFunctionsPerBatch: 5,    // Reduced from 10 to prevent timeouts
+      maxFunctionsPerBatch: 5,    // Kept at 5 to prevent timeouts
       includeExports: false,
       excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       ...options

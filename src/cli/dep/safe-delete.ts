@@ -19,10 +19,16 @@ interface SafeDeleteOptions extends OptionValues {
   force?: boolean;
   dryRun?: boolean;
   includeExports?: boolean;
+  includeStaticMethods?: boolean;
+  excludeTests?: boolean;
   exclude?: string[];
   format?: 'table' | 'json';
   verbose?: boolean;
   restore?: string;
+  // Candidate-level confidence filter (separate from edge-level --confidence-threshold)
+  minConfidence?: string;
+  // High recall preset
+  highRecall?: boolean;
 }
 
 /**
@@ -133,20 +139,48 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
   const shouldExecute = options.execute || false;
   const dryRun = options.dryRun || !shouldExecute; // Default to dry-run unless --execute is specified
   
+  const ct = parseFloat(options.confidenceThreshold || '0.90');
   const safeDeletionOptions: Partial<SafeDeletionOptions> = {
-    confidenceThreshold: parseFloat(options.confidenceThreshold || '0.95'),
-    maxFunctionsPerBatch: parseInt(options.maxBatch || '10'),
+    confidenceThreshold: Number.isFinite(ct) ? Math.min(1, Math.max(0, ct)) : 0.90,
+    maxFunctionsPerBatch: parseInt(options.maxBatch || '5'),
     createBackup: !options.noBackup,
     dryRun,
     includeExports: !!options.includeExports,
+    includeStaticMethods: Boolean(options.includeStaticMethods),
+    // if --exclude-tests present, respect it; default false keeps tests as entry points
+    excludeTests: Boolean(options.excludeTests),
     excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**'],
     // pass through verbosity
     verbose: Boolean(options.verbose)
   };
+
+  // Optional: candidate-level confidence filter (independent from edge filter)
+  if (options.minConfidence) {
+    const parsed = parseFloat(options.minConfidence);
+    if (Number.isFinite(parsed)) {
+      safeDeletionOptions.candidateMinConfidence = Math.min(1, Math.max(0, parsed));
+    } else {
+      console.warn('Invalid --min-confidence; using default behavior.');
+    }
+  }
   
   const mode = dryRun ? 'preview-only' : 'execute';
   if (options.verbose) {
-    console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}`);
+    const minCand = safeDeletionOptions.candidateMinConfidence;
+    console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}, minCandidateConfidence=${minCand ?? 'n/a'}, edgeConfidence=${safeDeletionOptions.confidenceThreshold}`);
+  }
+
+  // High recall preset: include exports and static methods; do not exclude tests
+  if (options.highRecall) {
+    safeDeletionOptions.includeExports = true;
+    safeDeletionOptions.includeStaticMethods = true;
+    safeDeletionOptions.excludeTests = false;
+    // Use stricter edge threshold to avoid spurious reachability; keep candidate filter moderate
+    const current = safeDeletionOptions.confidenceThreshold ?? 0.90;
+    safeDeletionOptions.confidenceThreshold = Math.max(0.99, current);
+    if (safeDeletionOptions.candidateMinConfidence == null) {
+      safeDeletionOptions.candidateMinConfidence = 0.9;
+    }
   }
   return safeDeletionOptions;
 }
@@ -486,7 +520,7 @@ function getReasonIcon(reason: string): string {
  * Get color based on confidence score and impact
  */
 function getConfidenceColor(confidenceScore: number, estimatedImpact: string) {
-  if (confidenceScore >= 0.95 && estimatedImpact === 'low') {
+  if (confidenceScore >= 0.90 && estimatedImpact === 'low') {
     return chalk.green;
   } else if (confidenceScore < 0.85 || estimatedImpact === 'high') {
     return chalk.red;
@@ -552,13 +586,13 @@ function outputNoDeletionsInfo(result: import('../../analyzers/safe-deletion-sys
   
   const confidenceDistribution = result.candidateFunctions.reduce((acc, candidate) => {
     const confidence = candidate.confidenceScore;
-    if (confidence >= 0.95) acc.high++;
-    else if (confidence >= 0.85) acc.medium++;
+    if (confidence >= 0.90) acc.high++;
+    else if (confidence >= 0.70) acc.medium++;
     else acc.low++;
     return acc;
   }, { high: 0, medium: 0, low: 0 });
   
-  console.log(chalk.dim(`   Confidence distribution: ${confidenceDistribution.high} high (≥95%), ${confidenceDistribution.medium} medium (≥85%), ${confidenceDistribution.low} low (<85%)`));
+  console.log(chalk.dim(`   Confidence distribution: ${confidenceDistribution.high} high (≥90%), ${confidenceDistribution.medium} medium (≥70%), ${confidenceDistribution.low} low (<70%)`));
 }
 
 /**

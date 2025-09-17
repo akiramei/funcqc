@@ -2,6 +2,7 @@ import { Project, SyntaxKind, SourceFile, VariableDeclaration, ProjectOptions, N
 import { FunctionInfo } from '../types/index.js';
 import { groupFunctionsByFile, sortFunctionsForDeletion } from '../utils/function-utils.js';
 import chalk from 'chalk';
+import { toFileSystemPath } from '../utils/path-normalizer.js';
 
 /**
  * Options for function deletion
@@ -96,12 +97,14 @@ export class SafeFunctionDeleter {
     functions: FunctionInfo[], 
     options: FunctionDeletionOptions
   ): Promise<number> {
+    // Resolve funcqc unified path ('/src/...') or relative path to actual filesystem path
+    const fsPath = toFileSystemPath(filePath);
     // Add source file to project if not already present
     let sourceFile: SourceFile;
     try {
-      sourceFile = this.project.getSourceFileOrThrow(filePath);
+      sourceFile = this.project.getSourceFileOrThrow(fsPath);
     } catch {
-      sourceFile = this.project.addSourceFileAtPath(filePath);
+      sourceFile = this.project.addSourceFileAtPath(fsPath);
     }
 
     let deletedCount = 0;
@@ -131,10 +134,11 @@ export class SafeFunctionDeleter {
     // Save file if not in dry-run mode and functions were deleted
     if (!options.dryRun && deletedCount > 0) {
       if (options.backupFiles) {
-        // Create backup before saving
-        const backupPath = `${filePath}.backup.${Date.now()}`;
-        await sourceFile.copy(backupPath);
-        
+        // Create backup before saving (use real FS path and persist)
+        const backupPath = `${fsPath}.backup.${Date.now()}`;
+        const backupFile = sourceFile.copy(backupPath, { overwrite: true });
+        await backupFile.save();
+
         if (this.verbose) {
           console.log(chalk.blue(`  📄 Backup created: ${backupPath}`));
         }
